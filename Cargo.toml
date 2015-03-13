@@ -1,0 +1,33 @@
+[package]
+
+name = "votingmachine"
+version = "0.0.1"
+authors = ["Emeric Chevalier <emericchevalier.pro@gmail.com>"]
+
+[[bin]]
+name = 'voting'
+doc = false
+
+[dependencies]
+
+log = "~0.2.5"
+#env_logger = "~0.2.2"
+uuid = "~0.1.11"
+num = "~0.1.15"
+rand = "~0.1.0"
+openssl = "~0.5.1"
+#rust-crypto = "~0.2.18"
+#bencode = "~0.1.7"
+#bincode = "~0.0.8"
+#rustc-serialize = "~2.0.12"
+
+[dependencies.time]
+git = "https://github.com/rust-lang/time.git"
+
+[dependencies.rustc-serialize]
+git = "https://github.com/rust-lang/rustc-serialize.git"
+
+[dependencies.mydht]
+#git = "file:///home/emeric/work/mydht"
+path = "../mydht/"
+
