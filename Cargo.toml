@@ -6,28 +6,28 @@ authors = ["Emeric Chevalier <emericchevalier.pro@gmail.com>"]
 
 [[bin]]
 name = 'voting'
+path = 'src/main.rs'
 doc = false
 
 [dependencies]
 
-log = "~0.2.5"
-#env_logger = "~0.2.2"
-uuid = "~0.1.11"
-num = "~0.1.15"
-rand = "~0.1.0"
-openssl = "~0.5.1"
-#rust-crypto = "~0.2.18"
-#bencode = "~0.1.7"
-#bincode = "~0.0.8"
-#rustc-serialize = "~2.0.12"
-
-[dependencies.time]
-git = "https://github.com/rust-lang/time.git"
-
-[dependencies.rustc-serialize]
-git = "https://github.com/rust-lang/rustc-serialize.git"
+log = "~0.3.4"
+env_logger = "~0.4.3"
+uuid = "~0.5.1"
+rand = "~0.3.11"
+bincode = "~0.8.0"
+serde = "~1.0.10"
+serde_derive = "~1.0.10"
+serde_json = "~1.0.2"
 
 [dependencies.mydht]
-#git = "file:///home/emeric/work/mydht"
-path = "../mydht/"
+#git = "https://github.com/cheme/mydht.git"
+path = "../mydht/mydht"
+
+[dependencies.mydht-openssl]
+#git = "https://github.com/cheme/mydht.git"
+path = "../mydht/mydht-openssl"
+[dependencies.mydht-tcp-loop]
+#git = "https://github.com/cheme/mydht.git"
+path = "../mydht/mydht-tcp-loop"
 

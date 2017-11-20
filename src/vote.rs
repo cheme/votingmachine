@@ -1,9 +1,8 @@
 use mydht::utils::TimeSpecExt;
 
-pub fn test() {
-  println!("hw");
-}
-// most of the struct ar sign with a by over something : this pattern!!
+// most of the struct ar sign with a by over something : this pattern!! About being the type of the
+// struct : when serializing of signing it could be good to add this typing info keyval for KeyVal
+// derivation and for sign (kind of like version (fn get_about()) encoding int use in wot).
 
 /// structure representing a vote with its associated information
 /// TODO participant is to limiting it could be extended to "wot group" 
@@ -30,6 +29,8 @@ pub struct VoteDesc {
   end_period_envelope : TimeSpecExt,
   end_period_participation : TimeSpecExt,
   end_period_vote : TimeSpecExt,
+  /// sign of its info
+  sign : Vec<u8>,
 }
 
 // pair key over id and vote id

@@ -1,9 +1,7 @@
-mydht
-=====
+votingmachine
+=============
 
-A generic library for implementing DHT (Distributed Hash Table).
-
-Written in rust, it is designed to be as flexible as possible to implement and experiment with various DHT usecases.
+An implementation of a distributed vote process.
 
 Build
 -----
@@ -16,6 +14,7 @@ Status
 TODO add travis-ci , rust-ci for doc
 
 wip
+TODO : type and store for trusted keyval
 
 Process Overview
 ----------------
