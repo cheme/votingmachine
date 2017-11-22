@@ -30,4 +30,13 @@ path = "../mydht/mydht-openssl"
 [dependencies.mydht-tcp-loop]
 #git = "https://github.com/cheme/mydht.git"
 path = "../mydht/mydht-tcp-loop"
+[dependencies.mydht-bincode]
+#git = "https://github.com/cheme/mydht.git"
+path = "../mydht/mydht-bincode"
+[dependencies.mydht-slab]
+#git = "https://github.com/cheme/mydht.git"
+path = "../mydht/mydht-slab"
+[dependencies.mydht-inefficientmap]
+#git = "https://github.com/cheme/mydht.git"
+path = "../mydht/mydht-inefficientmap"
 

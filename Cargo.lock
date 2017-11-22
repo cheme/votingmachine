@@ -278,6 +278,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "mydht-bincode"
+version = "0.0.1"
+dependencies = [
+ "bincode 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mydht-base 0.0.1",
+ "readwrite-comp 0.0.1 (git+https://github.com/cheme/readwrite-comp.git)",
+ "serde 1.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "mydht-inefficientmap"
+version = "0.0.1"
+dependencies = [
+ "bit-vec 0.4.1 (git+https://github.com/cheme/bit-vec.git)",
+ "log 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mydht-base 0.0.1",
+]
+
+[[package]]
 name = "mydht-openssl"
 version = "0.0.1"
 dependencies = [
@@ -289,6 +309,14 @@ dependencies = [
  "readwrite-comp 0.0.1 (git+https://github.com/cheme/readwrite-comp.git)",
  "serde 1.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "mydht-slab"
+version = "0.0.1"
+dependencies = [
+ "mydht-base 0.0.1",
+ "slab 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -645,7 +673,10 @@ dependencies = [
  "env_logger 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "mydht 0.0.1",
+ "mydht-bincode 0.0.1",
+ "mydht-inefficientmap 0.0.1",
  "mydht-openssl 0.0.1",
+ "mydht-slab 0.0.1",
  "mydht-tcp-loop 0.0.1",
  "rand 0.3.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
