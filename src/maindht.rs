@@ -2,7 +2,7 @@
 use mydht_tcp_loop::{
   Tcp,
 };
-
+use serde::{Serializer,Deserializer};
 use std::borrow::Borrow;
 use std::mem::replace;
 use mydht_slab::slab::Slab;
@@ -10,6 +10,7 @@ use mydht_inefficientmap::inefficientmap::InefficientmapBase2;
 use mydht_bincode::Bincode;
 use mydht::kvstoreif::{
   KVStore,
+  KVCache,
 };
 use mydht::transportif::{
   Transport,
@@ -73,6 +74,13 @@ use mydht::mydhtresult::{
 };
 use std::time::Instant;
 use std::time::Duration;
+use vote::{
+  MainStoreKV,
+  MainStoreKVRef,
+};
+
+type MainStoreKVStore = SimpleCache<MainStoreKV,HashMap<<MainStoreKV as KeyVal>::Key,MainStoreKV>>;
+type MainStoreQueryCache<P,PR> = SimpleCacheQuery<P,MainStoreKVRef,PR,HashMapQuery<P,MainStoreKVRef,PR>>;
 
 pub struct MainDHTConf<P,PM> {
   pub me : ArcRef<P>,
@@ -115,7 +123,6 @@ pub const DHTRULES_MAIN : DhtRules = DhtRules {
 impl<P : Peer<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>> MyDHTConf for MainDHTConf<P,PM> 
 where <P as KeyVal>::Key : Hash,
       <P as Peer>::Address : Hash,
-
 {
   const SEND_NB_ITER : usize = 10;
 
@@ -145,15 +152,23 @@ where <P as KeyVal>::Key : Hash,
   type Route = PeerCacheRouteBase;
 
   // keep val of global service to peer
-  type ProtoMsg = KVStoreProtoMsgWithPeer<Self::Peer,Self::PeerRef,Self::Peer,Self::PeerRef>;
+  type ProtoMsg = KVStoreProtoMsgWithPeer<Self::Peer,Self::PeerRef,MainStoreKV,MainStoreKVRef>;
 
 
   nolocal!();
 
-  type GlobalServiceCommand = KVStoreCommand<Self::Peer,Self::PeerRef,Self::Peer,Self::PeerRef>;
-  type GlobalServiceReply = KVStoreReply<Self::PeerRef>;
+  type GlobalServiceCommand = KVStoreCommand<Self::Peer,Self::PeerRef,MainStoreKV,MainStoreKVRef>;
+  type GlobalServiceReply = KVStoreReply<MainStoreKVRef>;
   /// Same as internal peerstore
-  type GlobalService = KVStoreService<Self::Peer,Self::PeerRef,Self::Peer,Self::PeerRef,Self::PeerKVStore,Self::DHTRules,Self::PeerStoreQueryCache>;
+  type GlobalService = KVStoreService<
+    Self::Peer,
+    Self::PeerRef,
+    MainStoreKV,
+    MainStoreKVRef,
+    MainStoreKVStore,
+    Self::DHTRules,
+    MainStoreQueryCache<Self::Peer,Self::PeerRef>
+  >;
   type GlobalServiceSpawn = ThreadPark;
   type GlobalServiceChannelIn = MpscChannel;
 
@@ -292,16 +307,25 @@ where <P as KeyVal>::Key : Hash,
   }
 
   fn init_global_service(&mut self) -> Result<Self::GlobalService> {
+    let i_store = Box::new(
+      ||{
+        Ok(SimpleCache::new(None))
+      });
+    let i_cache = Box::new(
+      ||{
+        Ok(SimpleCacheQuery::new(false))
+      }
+    );
     Ok(KVStoreService {
       // second ref create here due to P genericity (P is in conf : RefPeer should be in conf : but
       // for testing purpose we do it this way)
       me : self.init_ref_peer()?,
-      init_store : self.init_peer_kvstore()?,
-      init_cache : self.init_peer_kvstore_query_cache()?,
+      init_store : i_store,
+      init_cache : i_cache,
       store : None,
       dht_rules : self.init_dhtrules_proto()?,
       query_cache : None,
-      discover : self.do_peer_query_forward_with_discover(),
+      discover : true,
       _ph : PhantomData,
     })
   }

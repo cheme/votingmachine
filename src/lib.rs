@@ -1,6 +1,8 @@
 #![feature(int_uint)] // for log
 #[macro_use] extern crate log;
 #[macro_use] extern crate mydht;
+#[macro_use] extern crate serde_derive;
+extern crate serde;
 extern crate mydht_openssl;
 extern crate mydht_tcp_loop;
 extern crate mydht_bincode;

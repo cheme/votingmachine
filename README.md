@@ -23,6 +23,7 @@ Process Overview
 TODO vote access with a wot.
 It is issued for specific users (votant).
 Access to this Vote must be restrained, as it could result to simple blocking attacks (usage of subvote to diminished those attacks also reduced effectivness of anonymate (probability to get n identical vote where you got n votant)).
+ -> for POC got it from local json
 
 - we enter envelope period : each peer with access to the vote description will generate a Envelope (key pair) and send it (not the private key obviously) anonymously.
 Anomously is done by mode of send propagate. TODO enable tor transport sending. Enveloppe is (envelope id, vote id, publickey).

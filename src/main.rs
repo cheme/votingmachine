@@ -13,9 +13,20 @@ extern crate mydht_tcp_loop;
 extern crate serde;
 extern crate serde_json;
 extern crate mydht_bincode;
-
+ 
+use mydht::storeprop::{
+  KVStoreCommand,
+};
 use mydht::{
   MyDHTConf,
+  ApiCommand,
+  QueryPriority,
+};
+use mydht::dhtif::{
+  Result as MResult,
+};
+use mydht::service::{
+  SpawnSend,
 };
 use mydht::dhtimpl::{
   SimpleRules,
@@ -23,6 +34,9 @@ use mydht::dhtimpl::{
 use mydht::peer::{
   Peer,
   PeerMgmtMeths,
+};
+use mydht::api::{
+  DHTIn,
 };
 
 use std::time::Duration;
@@ -55,7 +69,7 @@ use mydht_openssl::rsa_openssl::{
 };
 use votingmachine::vote;
 use votingmachine::maindht::{
-  MainDHTConf,
+  MainDHTConf as MainDHTConfC,
   DHTRULES_MAIN,
 };
 use mydht::utils::{
@@ -65,10 +79,14 @@ use mydht::utils::{
 use mydht_tcp_loop::{
   Tcp,
 };
-
-
+use vote::{
+  VoteDesc,
+  MainStoreKV,
+  MainStoreKVRef,
+};
 type RSAPeer = RSAPeerC<String,SerSocketAddr,RSA2048SHA512AES256>;
 type RSAPeerMgmt = RSAPeerMgmtC<RSA2048SHA512AES256>;
+type MainDHTConf = MainDHTConfC<RSAPeer,RSAPeerMgmt>;
 
 #[derive(Debug,Deserialize,Serialize)]
 /// Config of the storage
@@ -132,7 +150,7 @@ fn main() {
     }
   }
 
-  let mut tstdin = stdin();
+  let tstdin = stdin();
   let mut stdin = tstdin.lock();
  
   info!("using conf file : {:?}" , conf_path);
@@ -159,8 +177,6 @@ fn main() {
   let boot_peers = match File::open(&boot_path) {
     Ok(mut f) => {
       let mut jcont = String::new();
-      /*f.read_to_string(&mut jcont).unwrap();
-      json::decode(jcont.as_str()).unwrap_or_else(|e|panic!("Invalid config {:?}\n quiting",e))*/
       let peers : Vec<ArcRef<RSAPeer>> = json::from_reader(&mut f).unwrap_or_else(|e|panic!("Invalid config {:?}\n quiting",e));
       if peers.len() > 0 {
         Some(peers)
@@ -186,7 +202,7 @@ fn main() {
     ).unwrap()
   };
  
-  let mut conf = MainDHTConf {
+  let mut conf = MainDHTConfC {
     me : fsconf.me.clone(),
     others : boot_peers,
     msg_enc : Bincode,
@@ -196,15 +212,15 @@ fn main() {
     rules : SimpleRules::new(DHTRULES_MAIN),
   };
 
-  let (sendcommand,_recv) = conf.start_loop().unwrap();
+  let (mut sendcommand,_recv) = conf.start_loop().unwrap();
 
 
   // Interactive mode TODO expand command syntax to not run interactive mode (only if -I), with
   // more common scenarii
   // prompt : vote from file to add a json serialized vote, vote from key to first get the vote in
   // dht.
-  println!("vote_file, vote_key, quit?");
   loop {
+    println!("vote_file, vote_key, quit?");
     let mut line = String::new();
     stdin.read_line(&mut line);
     match line.as_str() {
@@ -212,18 +228,45 @@ fn main() {
           break
       },
       "vote_file\n" => {
-         let mut path = String::new();
-         stdin.read_line(&mut path).unwrap();
-         path.pop();
-         let p = Path::new (path.as_str());
-         let f = File::open(&p); 
-//        let kv = <FileKV as FileKeyVal>::from_file(&mut f.unwrap());
-  //        match kv {
-   //        None => println!("Invald file content"),
-          //  Some(kv) => {
-           // println!("Loading");
-  //        },
- // };
+        let mut path = String::new();
+        stdin.read_line(&mut path).unwrap();
+        path.pop();
+        let p = Path::new(path.as_str());
+        match File::open(&p) {
+          Ok(mut f) => {
+            let r_vote : Result<VoteDesc,_> = json::from_reader(&mut f);
+            match r_vote {
+              Ok(vote) => {
+
+                println!("subject : {}", vote.subject);
+                println!("replies : {:?}", vote.replies);
+                let vote = ArcRef::new(MainStoreKV::VoteDesc(vote));
+
+                println!("your vote ?");
+                let mut vote_val = String::new();
+                stdin.read_line(&mut vote_val).unwrap();
+                vote_val.pop();
+                do_vote(&mut sendcommand,vote,vote_val).unwrap();
+              },
+              Err(e) => {
+                println!("Invalid vote config {:?}",e);
+                continue;
+              }
+            }
+          },
+          Err(_) => {
+            println!("No such file.");
+            continue;
+          },
+        };
+      },
+      "vote_key\n" => {
+        let mut key = String::new();
+        key.pop();
+        stdin.read_line(&mut key).unwrap();
+        // TODO base58 or 64 decode and get from other peers, with big depth
+        unimplemented!();
+        
       },
       c => { 
         println!("unrecognize command : {:?}", c);
@@ -238,4 +281,14 @@ fn main() {
 //  serv.block();
  
   println!("exiting.ok");
+}
+
+
+fn do_vote(main_in : &mut DHTIn<MainDHTConf>, vote : MainStoreKVRef, vote_val : String) -> MResult<()> {
+
+  // store vote (to make it accessible from other peers)
+  let c_store_vote = ApiCommand::call_service(KVStoreCommand::StoreLocally(vote.clone(),1,None));
+  main_in.send(c_store_vote)?;
+
+  Ok(())
 }
