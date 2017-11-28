@@ -8,8 +8,11 @@ extern crate mydht_tcp_loop;
 extern crate mydht_bincode;
 extern crate mydht_slab;
 extern crate mydht_inefficientmap;
+extern crate striple;
 
+// TODO unpub when stable
 pub mod vote;
 pub mod maindht;
-
+pub mod service;
+pub mod striples;
 

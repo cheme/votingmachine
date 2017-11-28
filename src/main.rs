@@ -3,6 +3,7 @@
 #[macro_use] extern crate mydht;
 #[macro_use] extern crate log;
 extern crate votingmachine;
+extern crate striple;
 //extern crate env_logger;
 
 extern crate mydht_openssl;
@@ -21,6 +22,7 @@ use mydht::{
   MyDHTConf,
   ApiCommand,
   QueryPriority,
+  PeerPriority,
 };
 use mydht::dhtif::{
   Result as MResult,
@@ -38,7 +40,6 @@ use mydht::peer::{
 use mydht::api::{
   DHTIn,
 };
-
 use std::time::Duration;
 use mydht_bincode::Bincode;
 use std::borrow::Borrow;
@@ -68,6 +69,7 @@ use mydht_openssl::rsa_openssl::{
   RSA2048SHA512AES256,
 };
 use votingmachine::vote;
+use votingmachine::striples;
 use votingmachine::maindht::{
   MainDHTConf as MainDHTConfC,
   DHTRULES_MAIN,
@@ -84,15 +86,44 @@ use vote::{
   MainStoreKV,
   MainStoreKVRef,
 };
-type RSAPeer = RSAPeerC<String,SerSocketAddr,RSA2048SHA512AES256>;
+use striples::{
+  StriplePeerIf,
+  StriplePeer,
+};
+use striple::striple::{
+  StripleKind,
+};
+type RSAPeerInner = RSAPeerC<String,SerSocketAddr,RSA2048SHA512AES256>;
+type RSAPeer = StriplePeer<RSAPeerInner>;
 type RSAPeerMgmt = RSAPeerMgmtC<RSA2048SHA512AES256>;
-type MainDHTConf = MainDHTConfC<RSAPeer,RSAPeerMgmt>;
+#[derive(Clone)]
+// TODO make generic to striplepeerif ??
+pub struct StriplePeerMgmt(RSAPeerMgmt);
+
+type MainDHTConf = MainDHTConfC<RSAPeer,StriplePeerMgmt>;
+
+impl PeerMgmtMeths<RSAPeer> for StriplePeerMgmt {
+  fn challenge (&self, p: &RSAPeer) -> Vec<u8> {
+    self.0.challenge(&p.inner)
+  }
+  fn signmsg (&self, p : &RSAPeer, m : &[u8]) -> Vec<u8> {
+    self.0.signmsg(&p.inner,m)
+  }
+  fn checkmsg (&self, p : &RSAPeer, a : &[u8], b : &[u8]) -> bool {
+    self.0.checkmsg(&p.inner,a,b)
+  }
+  fn accept (&self, p : &RSAPeer) -> Option<PeerPriority> {
+    // TODO run a striple check!!!
+    self.0.accept(&p.inner)
+  }
+}
+
 
 #[derive(Debug,Deserialize,Serialize)]
 /// Config of the storage
 pub struct VoteConf {
   /// your own peer infos.
-  pub me : ArcRef<RSAPeer>,
+  pub me : RSAPeerInner,
   /// Transport to use
   pub tcptimeout : i64,
 }
@@ -111,7 +142,7 @@ fn new_vote_conf (stdin : &mut StdinLock, path : &Path) -> IoResult<VoteConf> {
   //      tmp_file.write_all(json::encode(&fsconf2).unwrap().into_bytes().as_slice());
     me2.set_write_private(true);
     let fsconf2 = VoteConf {
-      me : ArcRef::new(me2),
+      me : me2,
       tcptimeout : 4,
     };
 
@@ -123,8 +154,7 @@ fn new_vote_conf (stdin : &mut StdinLock, path : &Path) -> IoResult<VoteConf> {
   let mut tmp_file = File::open(&path)?;
   let fsconf : VoteConf = json::from_reader(&mut tmp_file)?;
   {
-    let m : &RSAPeer = fsconf.me.borrow();
-    assert!(m.is_write_private() == false);
+    assert!(fsconf.me.is_write_private() == false);
   }
   Ok(fsconf)
 }
@@ -194,21 +224,22 @@ fn main() {
   // Bootstrap dht with rights types TODO
 
   let main_tcp_transport = {
-    let m : &RSAPeer = fsconf.me.borrow();
     Tcp::new(
-      m.get_address(),
+      fsconf.me.get_address(),
       Some(Duration::from_secs(5)), // timeout
       true,//mult
     ).unwrap()
   };
  
+  let me = ArcRef::new(StriplePeer::new(fsconf.me.clone()).unwrap());
+
   let mut conf = MainDHTConfC {
-    me : fsconf.me.clone(),
+    me : me,
     others : boot_peers,
     msg_enc : Bincode,
     transport : Some(main_tcp_transport),
 
-    peer_mgmt : RSAPeerMgmt::new(),
+    peer_mgmt : StriplePeerMgmt(RSAPeerMgmt::new()),
     rules : SimpleRules::new(DHTRULES_MAIN),
   };
 
@@ -283,12 +314,20 @@ fn main() {
   println!("exiting.ok");
 }
 
-
 fn do_vote(main_in : &mut DHTIn<MainDHTConf>, vote : MainStoreKVRef, vote_val : String) -> MResult<()> {
 
   // store vote (to make it accessible from other peers)
   let c_store_vote = ApiCommand::call_service(KVStoreCommand::StoreLocally(vote.clone(),1,None));
   main_in.send(c_store_vote)?;
 
+  // make our enveloppe
+  
+
+  // store enveloppe
+
+
+  // make enveloppe vote peer relation
+
+  // store relation : TODO include as private field of vote (unserialized) and store vote later
   Ok(())
 }

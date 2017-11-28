@@ -39,4 +39,7 @@ path = "../mydht/mydht-slab"
 [dependencies.mydht-inefficientmap]
 #git = "https://github.com/cheme/mydht.git"
 path = "../mydht/mydht-inefficientmap"
+[dependencies.striple]
+#git = "https://github.com/cheme/rust-striple.git"
+path = "../rust-striple"
 

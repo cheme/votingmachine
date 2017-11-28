@@ -2,6 +2,7 @@
 use mydht_tcp_loop::{
   Tcp,
 };
+use service::VotingService; 
 use serde::{Serializer,Deserializer};
 use std::borrow::Borrow;
 use std::mem::replace;
@@ -79,8 +80,8 @@ use vote::{
   MainStoreKVRef,
 };
 
-type MainStoreKVStore = SimpleCache<MainStoreKV,HashMap<<MainStoreKV as KeyVal>::Key,MainStoreKV>>;
-type MainStoreQueryCache<P,PR> = SimpleCacheQuery<P,MainStoreKVRef,PR,HashMapQuery<P,MainStoreKVRef,PR>>;
+pub type MainStoreKVStore = SimpleCache<MainStoreKV,HashMap<<MainStoreKV as KeyVal>::Key,MainStoreKV>>;
+pub type MainStoreQueryCache<P,PR> = SimpleCacheQuery<P,MainStoreKVRef,PR,HashMapQuery<P,MainStoreKVRef,PR>>;
 
 pub struct MainDHTConf<P,PM> {
   pub me : ArcRef<P>,
@@ -159,16 +160,7 @@ where <P as KeyVal>::Key : Hash,
 
   type GlobalServiceCommand = KVStoreCommand<Self::Peer,Self::PeerRef,MainStoreKV,MainStoreKVRef>;
   type GlobalServiceReply = KVStoreReply<MainStoreKVRef>;
-  /// Same as internal peerstore
-  type GlobalService = KVStoreService<
-    Self::Peer,
-    Self::PeerRef,
-    MainStoreKV,
-    MainStoreKVRef,
-    MainStoreKVStore,
-    Self::DHTRules,
-    MainStoreQueryCache<Self::Peer,Self::PeerRef>
-  >;
+  type GlobalService = VotingService<Self::Peer,Self::PeerRef>;
   type GlobalServiceSpawn = ThreadPark;
   type GlobalServiceChannelIn = MpscChannel;
 
@@ -316,17 +308,17 @@ where <P as KeyVal>::Key : Hash,
         Ok(SimpleCacheQuery::new(false))
       }
     );
-    Ok(KVStoreService {
-      // second ref create here due to P genericity (P is in conf : RefPeer should be in conf : but
-      // for testing purpose we do it this way)
-      me : self.init_ref_peer()?,
-      init_store : i_store,
-      init_cache : i_cache,
-      store : None,
-      dht_rules : self.init_dhtrules_proto()?,
-      query_cache : None,
-      discover : true,
-      _ph : PhantomData,
+    Ok(VotingService {
+      store_service : KVStoreService {
+        me : self.init_ref_peer()?,
+        init_store : i_store,
+        init_cache : i_cache,
+        store : None,
+        dht_rules : self.init_dhtrules_proto()?,
+        query_cache : None,
+        discover : true,
+        _ph : PhantomData,
+      }
     })
   }
 
