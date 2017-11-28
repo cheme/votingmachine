@@ -123,7 +123,7 @@ impl PeerMgmtMeths<RSAPeer> for StriplePeerMgmt {
 /// Config of the storage
 pub struct VoteConf {
   /// your own peer infos.
-  pub me : RSAPeerInner,
+  pub me : ArcRef<RSAPeer>,
   /// Transport to use
   pub tcptimeout : i64,
 }
@@ -141,8 +141,9 @@ fn new_vote_conf (stdin : &mut StdinLock, path : &Path) -> IoResult<VoteConf> {
     let mut tmp_file = File::create(path).unwrap();
   //      tmp_file.write_all(json::encode(&fsconf2).unwrap().into_bytes().as_slice());
     me2.set_write_private(true);
+    let m = ArcRef::new(StriplePeer::new(me2).unwrap());
     let fsconf2 = VoteConf {
-      me : me2,
+      me : m,
       tcptimeout : 4,
     };
 
@@ -154,7 +155,8 @@ fn new_vote_conf (stdin : &mut StdinLock, path : &Path) -> IoResult<VoteConf> {
   let mut tmp_file = File::open(&path)?;
   let fsconf : VoteConf = json::from_reader(&mut tmp_file)?;
   {
-    assert!(fsconf.me.is_write_private() == false);
+    let m : &RSAPeer = fsconf.me.borrow();
+    assert!(m.inner.is_write_private() == false);
   }
   Ok(fsconf)
 }
@@ -224,17 +226,17 @@ fn main() {
   // Bootstrap dht with rights types TODO
 
   let main_tcp_transport = {
+    let m : &RSAPeer = fsconf.me.borrow();
     Tcp::new(
-      fsconf.me.get_address(),
+      m.inner.get_address(),
       Some(Duration::from_secs(5)), // timeout
       true,//mult
     ).unwrap()
   };
  
-  let me = ArcRef::new(StriplePeer::new(fsconf.me.clone()).unwrap());
 
-  let mut conf = MainDHTConfC {
-    me : me,
+  let conf = MainDHTConfC {
+    me : fsconf.me.clone(),
     others : boot_peers,
     msg_enc : Bincode,
     transport : Some(main_tcp_transport),
