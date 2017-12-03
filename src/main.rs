@@ -69,7 +69,7 @@ use mydht_openssl::rsa_openssl::{
   RSA2048SHA512AES256,
 };
 use votingmachine::vote;
-use votingmachine::striples;
+use votingmachine::vote::striples;
 use votingmachine::maindht::{
   MainDHTConf as MainDHTConfC,
   DHTRULES_MAIN,
@@ -86,13 +86,17 @@ use vote::{
   MainStoreKV,
   MainStoreKVRef,
 };
-use striples::{
-  StriplePeerIf,
+use vote::striples::{
   StriplePeer,
+  STRIPLEREFS,
 };
 use striple::striple::{
+  StripleIf,
+  StripleFieldsIf,
+  StripleImpl,
   StripleKind,
 };
+
 type RSAPeerInner = RSAPeerC<String,SerSocketAddr,RSA2048SHA512AES256>;
 type RSAPeer = StriplePeer<RSAPeerInner>;
 type RSAPeerMgmt = RSAPeerMgmtC<RSA2048SHA512AES256>;
@@ -204,6 +208,13 @@ fn main() {
 
   let tcptimeout = &fsconf.tcptimeout;
   info!("my conf is : {:?}" , fsconf);
+  
+  // check fsconf (TODO find a way to autocheck from serde)
+  // TODO uncomment when init of bcont plugged into serde!!!
+/*  {
+    let m : &RSAPeer = fsconf.me.borrow();
+    assert!(m.borrow().check(&STRIPLEREFS.pub_peer).unwrap());
+  }*/
 
   // getting bootstrap peers
   let boot_peers = match File::open(&boot_path) {

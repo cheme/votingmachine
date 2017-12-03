@@ -11,7 +11,9 @@ doc = false
 
 [dependencies]
 
+time = "~0.1.33"
 log = "~0.3.4"
+lazy_static = "~0.2.8"
 env_logger = "~0.4.3"
 uuid = "~0.5.1"
 rand = "~0.3.11"

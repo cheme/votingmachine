@@ -1,6 +1,7 @@
 use mydht::utils::TimeSpecExt;
 use serde::{Serializer,Deserializer};
 use std::borrow::Borrow;
+use striple::striple::BCont;
 use mydht::utils::{
   Ref,
   SRef,
@@ -13,7 +14,7 @@ use mydht::keyval::{
   SettableAttachment,
   Attachment,
 };
-
+pub mod striples;
 // most of the struct ar sign with a by over something : this pattern!! About being the type of the
 // struct : when serializing of signing it could be good to add this typing info keyval for KeyVal
 // derivation and for sign (kind of like version (fn get_about()) encoding int use in wot).
@@ -109,19 +110,22 @@ impl KeyVal for VoteDesc {
 }
 
 
-#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
+#[derive(Debug,Clone,Serialize,Deserialize)]
 /// structure representing a vote with its associated information
 /// TODO participant is to limiting it could be extended to "wot group" 
 /// aka web of trust level or groups (especially for invitations).
 /// VoteDesc access is restricted until Vote as been validated.
 pub struct VoteDesc {
   /// id to query for vote TODO use something like bitcoin address
+  /// TODO init from base58 of id
   pub shortkey : String,
   /// TODO another keyval to associate with this id - it is a publickey
   id : Vec<u8>,
-  /// it is this information that should not be published outside invitation group
+  /// creator of the vote (a user)
+  emit_by : Vec<u8>,
+/*  /// it is this information that should not be published outside invitation group
   /// this is restricted
-  privateKey : Vec<u8>,
+  privateKey : Vec<u8>,*/
   /// could be url to description or a lot of othe file TODO expand
   pub subject  : String,
   /// possible replies, could also be open replies and other types TODO expand
@@ -137,7 +141,33 @@ pub struct VoteDesc {
   end_period_vote : TimeSpecExt,
   /// sign of its info
   sign : Vec<u8>,
+  #[serde(skip_serializing,skip_deserializing)]
+  /// obviously wrong, striple lib need some refacto to avoid such a buffer
+  /// (or allow bcont as bytes producer (meaning Read) from self)
+  content : Option<BCont<'static>>,
 }
+#[derive(Debug,Serialize)]
+/// structure representing a vote with its associated information
+/// TODO participant is to limiting it could be extended to "wot group" 
+/// aka web of trust level or groups (especially for invitations).
+/// VoteDesc access is restricted until Vote as been validated.
+pub struct VoteDescStripleContent<'a> {
+  pub subject  : &'a String,
+  pub replies  : &'a Vec<String>,
+}
+ 
+
+impl PartialEq for VoteDesc {
+
+  /// fast comp (fine if striple are checked)
+  fn eq(&self, other: &VoteDesc) -> bool {
+    self.id == other.id
+  }
+}
+
+impl Eq for VoteDesc {
+}
+
 
 // pair key over id and vote id
 pub struct Envelope {

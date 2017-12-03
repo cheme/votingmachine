@@ -57,6 +57,11 @@ impl<P : Peer,RP : Ref<P> + Clone> Service for VotingService<P,RP> {
 
   fn call<Y : SpawnerYield>(&mut self, req: Self::CommandIn, async_yield : &mut Y) -> Result<Self::CommandOut> {
 
+    // filters :
+
+    // query votedesc : if no participation set for votedesc : reply only if user  in list of voters -> create a command for it that use owith in command TODO evo MyDHT to add owith to local or global commad
+    // for a start simply reply?? (key being the secret)
+    
     self.store_service.call(req,async_yield)
   }
 }
