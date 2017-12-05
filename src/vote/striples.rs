@@ -1,5 +1,4 @@
 //! striple implementation of various vote objects
-
 use mydht::utils::TimeSpecExt;
 use time::{
   self,
@@ -7,6 +6,7 @@ use time::{
   Duration,
 };
 use bincode;
+use std::error::Error as ErrorTrait;
 use bincode::Error as BinError;
 use std::result::Result as StdResult;
 use std::io::Cursor;
@@ -42,7 +42,10 @@ use vote::{
 use mydht::mydhtresult::Result as MResult;
 use mydht::mydhtresult::Error as MError;
 use mydht::mydhtresult::ErrorKind as MErrorKind;
-use std::marker::PhantomData;
+use std::marker::{
+  PhantomData,
+  Sync,
+};
 use striple::striple::{
   StripleRef,
   AsStriple,
@@ -139,12 +142,17 @@ impl<K : StripleKind,C : OpenSSLConf> OpenSSLConf for StriplePeerConf<K,C> {
 }
 */
 
-// TODO move this impl??
-impl<A : KVContent,B : Address> StripleImpl for StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
+/*impl<A : KVContent,B : Address> StripleImpl for StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
   type Kind = Rsa2048Sha512;
+}*/
+//impl<P : Peer, S : StripleKind> StripleImpl for StriplePeer<P,S> {
+impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StripleImpl for StriplePeer<A,B,C,S> {
+  type Kind = S;
 }
 
-impl<A : KVContent,B : Address> InstantiableStripleImpl for StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
+
+impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> InstantiableStripleImpl for StriplePeer<A,B,C,S> {
+//impl<P : Peer, S : StripleKind> InstantiableStripleImpl for StriplePeer<P,S> {
   // TODO use a variant of instantiable to use from as an Arc or RC, not for poc
   // other idea is changing init to use &[u8] for from and not adding it to striple peer (get from
   // using lazy one (lifetime issue)
@@ -167,15 +175,26 @@ impl From<StripleMydhtErr> for MError {
     MError((e.0).0, MErrorKind::ExternalLib, (e.0).2)
   }
 }
+pub struct GenErr<E : ErrorTrait>(E);
+// TODO move to mydht error lib
+impl<E : ErrorTrait> From<GenErr<E>> for MError {
+  #[inline]
+  fn from(e : GenErr<E>) -> MError {
+    MError(format!("{}, cause : {:?}",e.0.description(),e.0.cause()), MErrorKind::ExternalLib, None)
+  }
+}
 
-impl<A : KVContent,B : Address> StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
-  pub fn new(p : RSAPeer<A,B,RSA2048SHA512AES256>) -> MResult<Self> {
+
+impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StriplePeer<A,B,C,S> {
+//impl<A : KVContent,B : Address> StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
+  pub fn new(p : RSAPeer<A,B,C>) -> MResult<Self> {
     let mut peer = StriplePeer {
       inner : p,
       id : Vec::new(),
       sig : Vec::new(),
       from : Vec::new(),
       content : None,
+      _ph : PhantomData,
     };
 
     peer.init_content();
@@ -191,6 +210,19 @@ impl<A : KVContent,B : Address> StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
     self.content = Some(BCont::OwnedBytes(dest.into_inner()));
   }
 }
+
+
+#[inline]
+//fn init_content_peer<'de,D : Deserializer<'de>,A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(p : &mut StriplePeer<A,B,C,S>) -> Result<(),D::Error> {
+fn init_content_peer<E,A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(p : &mut StriplePeer<A,B,C,S>) -> Result<(),E> {
+  p.init_content();
+  // check by default TODO a feature to disable this default deser check
+  // TODO returrning an error is truly inconvenient (need specific deserializer implementation)
+  // THis code need a solution (can keep for poc)
+  assert!(p.check(&STRIPLEREFS.pub_peer).unwrap());
+  Ok(())
+}
+
 /*  pub fn init_content<A : KVContent,B : Address>(p : &mut StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>>) {
     let mut dest = Cursor::new(Vec::new());
     bincode::serialize_into(&mut dest, &p.inner.peerinfo, bincode::Infinite).unwrap();
@@ -199,7 +231,8 @@ impl<A : KVContent,B : Address> StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
 
 
 //impl<A : KVContent,B : Address, C : OpenSSLConf> StripleFieldsIf for StriplePeer<RSAPeer<A,B,C>> {
-impl<A : KVContent,B : Address> StripleFieldsIf for StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
+//impl<A : KVContent,B : Address> StripleFieldsIf for StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
+impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StripleFieldsIf for StriplePeer<A,B,C,S> {
  
   fn get_algo_key(&self) -> ByteSlice {
     ByteSlice::Static(<<Self as StripleImpl>::Kind as StripleKind>::get_algo_key())
@@ -257,8 +290,9 @@ const REL_PEER_ENV_VOTE_STRIPLE_ID = 4;
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
 #[serde(bound(deserialize = ""))]
-pub struct StriplePeer<P : Peer> {
-  pub inner : P,
+#[serde(finish_deserialize = "init_content_peer")]
+pub struct StriplePeer<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> {
+  pub inner : RSAPeer<A,B,C>,
 
 
   id : Vec<u8>,
@@ -270,24 +304,26 @@ pub struct StriplePeer<P : Peer> {
   /// obviously wrong, striple lib need some refacto to avoid such a buffer
   /// (or allow bcont as bytes producer (meaning Read) from self)
   content : Option<BCont<'static>>,
+  #[serde(skip_serializing,skip_deserializing)]
+  _ph : PhantomData<S>,
 }
-impl<P : Peer> PartialEq for StriplePeer<P> {
+impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> PartialEq for StriplePeer<A,B,C,S> {
 
   /// fast comp (fine if striple are checked)
-  fn eq(&self, other: &StriplePeer<P>) -> bool {
+  fn eq(&self, other: &StriplePeer<A,B,C,S>) -> bool {
     self.id == other.id
   }
 }
 
-impl<P : Peer> Eq for StriplePeer<P> {
+impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> Eq for StriplePeer<A,B,C,S> {
 }
 
-impl<P : Peer> Peer for StriplePeer<P> {
-  type Address = <P as Peer>::Address;
-  type ShadowWAuth = <P as Peer>::ShadowWAuth;
-  type ShadowRAuth = <P as Peer>::ShadowRAuth;
-  type ShadowWMsg = <P as Peer>::ShadowWMsg;
-  type ShadowRMsg = <P as Peer>::ShadowRMsg;
+impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> Peer for StriplePeer<A,B,C,S> {
+  type Address = <RSAPeer<A,B,C> as Peer>::Address;
+  type ShadowWAuth = <RSAPeer<A,B,C> as Peer>::ShadowWAuth;
+  type ShadowRAuth = <RSAPeer<A,B,C> as Peer>::ShadowRAuth;
+  type ShadowWMsg = <RSAPeer<A,B,C> as Peer>::ShadowWMsg;
+  type ShadowRMsg = <RSAPeer<A,B,C> as Peer>::ShadowRMsg;
   fn get_address (&self) -> &Self::Address {
     self.inner.get_address()
   }
@@ -308,7 +344,7 @@ impl<P : Peer> Peer for StriplePeer<P> {
   }
 }
 /// replace rsa id by striple id (more info in striple id)
-impl<P : Peer> KeyVal for StriplePeer<P> {
+impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> KeyVal for StriplePeer<A,B,C,S> {
   type Key = Vec<u8>;
   fn attachment_expected_size(&self) -> usize {
     self.inner.attachment_expected_size()
@@ -322,7 +358,7 @@ impl<P : Peer> KeyVal for StriplePeer<P> {
   fn get_attachment(&self) -> Option<&Attachment> {
     self.inner.get_attachment()
   }
-  fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+  fn encode_kv<S1:Serializer> (&self, s: S1, _ : bool, _ : bool) -> Result<S1::Ok, S1::Error> {
     panic!("TODO rem from trait")
   }
   /// First boolean indicates if the encoding is locally used (not send to other peers).
@@ -334,7 +370,7 @@ impl<P : Peer> KeyVal for StriplePeer<P> {
   }
 
 }
-impl<P : Peer> SettableAttachment for StriplePeer<P> { }
+impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> SettableAttachment for StriplePeer<A,B,C,S> { }
 /*
 pub struct RSAPeer<I : KVContent,A : Address,C : OpenSSLConf> {
   /// key to use to identify peer, derived from publickey it is shorter
@@ -456,7 +492,7 @@ pub fn get_new_vote_times () -> (TimeSpecExt,TimeSpecExt,TimeSpecExt) {
 }
 impl VoteDesc {
   pub fn new<A : KVContent,B : Address> (
-    user : &StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>>,
+    user : &StriplePeer<A,B,RSA2048SHA512AES256,Rsa2048Sha512>,
     user_private : &[u8],
     subject : String,
     replies : Vec<String>,
@@ -507,3 +543,4 @@ impl VoteDesc {
     self.content = Some(BCont::OwnedBytes(dest.into_inner()));
   }
 }
+

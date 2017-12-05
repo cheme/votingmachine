@@ -15,6 +15,9 @@ extern crate serde;
 extern crate serde_json;
 extern crate mydht_bincode;
  
+use striple::anystriple::{
+  Rsa2048Sha512,
+};
 use mydht::storeprop::{
   KVStoreCommand,
 };
@@ -97,8 +100,8 @@ use striple::striple::{
   StripleKind,
 };
 
-type RSAPeerInner = RSAPeerC<String,SerSocketAddr,RSA2048SHA512AES256>;
-type RSAPeer = StriplePeer<RSAPeerInner>;
+//type RSAPeerInner = RSAPeerC<String,SerSocketAddr,RSA2048SHA512AES256>;
+type RSAPeer = StriplePeer<String,SerSocketAddr,RSA2048SHA512AES256,Rsa2048Sha512>;
 type RSAPeerMgmt = RSAPeerMgmtC<RSA2048SHA512AES256>;
 #[derive(Clone)]
 // TODO make generic to striplepeerif ??
@@ -131,6 +134,14 @@ pub struct VoteConf {
   /// Transport to use
   pub tcptimeout : i64,
 }
+/*
+impl<T : Serialize> Serialize for ArcRef<T> {
+  fn serialize<S : Serializer>(&self, serializer: S) -> StdResult<S::Ok, S::Error> {
+    let a : &T = self.borrow();
+    a.serialize(serializer)
+  }
+}*/
+
 
 fn new_vote_conf (stdin : &mut StdinLock, path : &Path) -> IoResult<VoteConf> {
   let mut newname = String::new();
@@ -210,7 +221,7 @@ fn main() {
   info!("my conf is : {:?}" , fsconf);
   
   // check fsconf (TODO find a way to autocheck from serde)
-  // TODO uncomment when init of bcont plugged into serde!!!
+  // Done in init serde function (cf fork) , just commented here in case fork is refused.
 /*  {
     let m : &RSAPeer = fsconf.me.borrow();
     assert!(m.borrow().check(&STRIPLEREFS.pub_peer).unwrap());

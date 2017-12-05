@@ -19,8 +19,12 @@ uuid = "~0.5.1"
 rand = "~0.3.11"
 bincode = "~0.8.0"
 serde = "~1.0.10"
-serde_derive = "~1.0.10"
+#serde_derive = "~1.0.10"
 serde_json = "~1.0.2"
+rust-base58 = "*"
+
+[dependencies.serde_derive]
+git = "https://github.com/cheme/serde.git"
 
 [dependencies.mydht]
 #git = "https://github.com/cheme/mydht.git"
