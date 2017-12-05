@@ -214,13 +214,14 @@ impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StriplePeer<A,B
 
 #[inline]
 //fn init_content_peer<'de,D : Deserializer<'de>,A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(p : &mut StriplePeer<A,B,C,S>) -> Result<(),D::Error> {
-fn init_content_peer<E,A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(p : &mut StriplePeer<A,B,C,S>) -> Result<(),E> {
+//fn init_content_peer<E,A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(p : &mut StriplePeer<A,B,C,S>) -> Result<(),E> {
+fn init_content_peer<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(mut p : StriplePeer<A,B,C,S>) -> StriplePeer<A,B,C,S> {
   p.init_content();
   // check by default TODO a feature to disable this default deser check
   // TODO returrning an error is truly inconvenient (need specific deserializer implementation)
   // THis code need a solution (can keep for poc)
   assert!(p.check(&STRIPLEREFS.pub_peer).unwrap());
-  Ok(())
+  p
 }
 
 /*  pub fn init_content<A : KVContent,B : Address>(p : &mut StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>>) {
@@ -254,7 +255,7 @@ impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StripleFieldsIf
   fn get_about(&self) -> ByteSlice {
     // this is null about TODO create a striple to fill it ? (from is already defining user : about
     // could be 'is an instance of'
-    ByteSlice::Owned(&self.from[..])
+    ByteSlice::Owned(&self.id[..])
   }
 
   /// Warning, this implies that rsa peer peerinfo is immutable (otherwhise peer will not check)
@@ -453,7 +454,7 @@ impl StripleFieldsIf for VoteDesc {
   fn get_about(&self) -> ByteSlice {
     // this is null about TODO create a striple to fill it ? (from is already defining user : about
     // could be 'is an instance of' TODO change striple to allow returning &'static or & (use enum) 
-    ByteSlice::Owned(&self.emit_by[..])
+    ByteSlice::Owned(&self.id[..])
   }
   // TODO change striple interface to allow calculate each time
   fn get_content<'a>(&'a self) -> Option<&'a BCont<'a>> {
