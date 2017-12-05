@@ -34,6 +34,7 @@ use striple::storage::{
   init_any_cipher_stdin,
 };
 use serde::{Serializer,Deserializer};
+use serde::de::Error as SerdeDeError;
 use vote::{
   VoteDesc,
   VoteDescStripleContent,
@@ -185,6 +186,7 @@ impl<E : ErrorTrait> From<GenErr<E>> for MError {
 }
 
 
+
 impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StriplePeer<A,B,C,S> {
 //impl<A : KVContent,B : Address> StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
   pub fn new(p : RSAPeer<A,B,C>) -> MResult<Self> {
@@ -215,13 +217,16 @@ impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StriplePeer<A,B
 #[inline]
 //fn init_content_peer<'de,D : Deserializer<'de>,A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(p : &mut StriplePeer<A,B,C,S>) -> Result<(),D::Error> {
 //fn init_content_peer<E,A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(p : &mut StriplePeer<A,B,C,S>) -> Result<(),E> {
-fn init_content_peer<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(mut p : StriplePeer<A,B,C,S>) -> StriplePeer<A,B,C,S> {
+fn init_content_peer<E : SerdeDeError,A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind>(mut p : StriplePeer<A,B,C,S>) -> Result<StriplePeer<A,B,C,S>,E> {
   p.init_content();
   // check by default TODO a feature to disable this default deser check
-  // TODO returrning an error is truly inconvenient (need specific deserializer implementation)
-  // THis code need a solution (can keep for poc)
-  assert!(p.check(&STRIPLEREFS.pub_peer).unwrap());
-  p
+  match p.check(&STRIPLEREFS.pub_peer) {
+    Ok(true) => Ok(p),
+    Ok(false) => 
+      Err(SerdeDeError::custom("RSA Peer checking error, signature invalid")),
+    Err(e) => 
+      Err(SerdeDeError::custom(format!("{}, cause : {:?}",e.description(),e.cause()))),
+  }
 }
 
 /*  pub fn init_content<A : KVContent,B : Address>(p : &mut StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>>) {
