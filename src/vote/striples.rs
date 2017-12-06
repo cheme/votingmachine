@@ -169,7 +169,7 @@ impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> InstantiableStr
 }
 
 
-pub struct StripleMydhtErr(StripleError);
+pub struct StripleMydhtErr(pub StripleError);
 impl From<StripleMydhtErr> for MError {
   #[inline]
   fn from(e : StripleMydhtErr) -> MError {
@@ -471,82 +471,14 @@ impl StripleFieldsIf for VoteDesc {
   }
 
   fn get_key(&self) -> &[u8] {
-    // public striple signing with its own id
-    &self.id[..]
+    // public striple signing with its own id is not a nice id, need a random key
+    // &self.id[..]
+    &self.key[..]
   }
 
   fn get_sig(&self) -> &[u8] {
     &self.sign[..]
   }
 
-}
-// TODO param this later
-const envelope_duration_s : i64 = 2;
-// no participation impl (only synch of getting the voteconf)
-const participation_duration_s : i64 = 1;
-const vote_duration_s : i64 = 2;
-pub fn get_new_vote_times () -> (TimeSpecExt,TimeSpecExt,TimeSpecExt) {
-  let now = time::get_time();
-  let e = Duration::seconds(envelope_duration_s);
-  let p = Duration::seconds(participation_duration_s);
-  let v = Duration::seconds(vote_duration_s);
-  (
-    TimeSpecExt(now + p),
-    TimeSpecExt(now + p + e),
-    TimeSpecExt(now + p + e + v),
-  )
-}
-impl VoteDesc {
-  pub fn new<A : KVContent,B : Address> (
-    user : &StriplePeer<A,B,RSA2048SHA512AES256,Rsa2048Sha512>,
-    user_private : &[u8],
-    subject : String,
-    replies : Vec<String>,
-    invitations : Vec<Vec<u8>>,
-    ) -> MResult<Self> {
-    let (t1,t2,t3) = get_new_vote_times();
-    let mut vote = VoteDesc {
-      shortkey : "TODO base58 of id after calc init".to_string(),
-      id : Vec::new(),
-      emit_by : Vec::new(),
-      subject,
-      replies,
-      invitations,
-      end_period_envelope : t2,
-      end_period_participation : t1,
-      end_period_vote : t3,
-      sign : Vec::new(),
-      content : None,
-    };
-
-    vote.init_content();
-    // very wrong
-    vote.calc_init(&(user,user_private)).map_err(|e|StripleMydhtErr(e))?;
-    Ok(vote)
-  }
-
-  /// possible because not in striple content (better for poc and could also be better overall)
-  pub fn restart_duration (&mut self) {
-    let (t1,t2,t3) = get_new_vote_times();
-    self.end_period_envelope = t2;
-    self.end_period_participation = t1;
-    self.end_period_vote = t3;
-  }
-  pub fn get_vote_striple_content (&self) -> VoteDescStripleContent {
-    VoteDescStripleContent{
-      subject  : &self.subject,
-      replies : &self.replies,
-    }
-  }
-  // TODO this is call manually , check how to integrate it to serde deserialization
-  // (deserialize_with ?? or call back after struct deser?)
-  pub fn init_content(&mut self) {
-    let mut dest = Cursor::new(Vec::new());
-    // note that we do not put date in content : the vote could therefore be reissued, what is
-    // relevant is the participation report (with all enveloppe and signed by all vote peers) and
-    // its associated signature
-    bincode::serialize_into(&mut dest, &self.get_vote_striple_content(), bincode::Infinite).unwrap();
-    self.content = Some(BCont::OwnedBytes(dest.into_inner()));
-  }
 }
 

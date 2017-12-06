@@ -9,6 +9,12 @@ name = 'voting'
 path = 'src/main.rs'
 doc = false
 
+
+[[example]]
+name='init_a_vote'
+path = "examples/init_a_vote.rs"
+
+
 [dependencies]
 
 time = "~0.1.33"

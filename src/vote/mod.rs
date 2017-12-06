@@ -1,7 +1,33 @@
 use mydht::utils::TimeSpecExt;
+use std::io::Cursor;
+use self::striples::StripleMydhtErr;
+use mydht::mydhtresult::Result as MResult;
+use bincode;
 use serde::{Serializer,Deserializer};
 use std::borrow::Borrow;
 use striple::striple::BCont;
+use mydht::transportif::Address;
+
+use striple::striple::{
+  InstantiableStripleImpl,
+  StripleIf,
+  StripleImpl,
+  StripleKind,
+  SignatureScheme,
+};
+use time::{
+  self,
+  Timespec,
+  Duration,
+};
+
+use mydht::dhtif::{
+  Peer,
+  Key,
+  Key as KVContent,
+  KeyVal,
+};
+
 use mydht::utils::{
   Ref,
   SRef,
@@ -10,7 +36,6 @@ use mydht::utils::{
 };
 
 use mydht::keyval::{
-  KeyVal,
   SettableAttachment,
   Attachment,
 };
@@ -111,6 +136,7 @@ impl KeyVal for VoteDesc {
 
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
+#[serde(finish_deserialize = "init_content_votedesc")]
 /// structure representing a vote with its associated information
 /// TODO participant is to limiting it could be extended to "wot group" 
 /// aka web of trust level or groups (especially for invitations).
@@ -121,6 +147,7 @@ pub struct VoteDesc {
   pub shortkey : String,
   /// TODO another keyval to associate with this id - it is a publickey
   id : Vec<u8>,
+  key : Vec<u8>,
   /// creator of the vote (a user)
   emit_by : Vec<u8>,
 /*  /// it is this information that should not be published outside invitation group
@@ -146,6 +173,15 @@ pub struct VoteDesc {
   /// (or allow bcont as bytes producer (meaning Read) from self)
   content : Option<BCont<'static>>,
 }
+#[inline]
+fn init_content_votedesc<E>(mut vote : VoteDesc) -> Result<VoteDesc,E> {
+  vote.init_content();
+  Ok(vote)
+  // could not check as signature is not static (might require to search for peer)
+}
+
+
+
 #[derive(Debug,Serialize)]
 /// structure representing a vote with its associated information
 /// TODO participant is to limiting it could be extended to "wot group" 
@@ -236,3 +272,77 @@ pub struct SubVote {
   vote : Vote,
   subparticipant : Vec<Vec<u8>>, // key to peer TODO parameterized
 }
+// TODO param this later
+const envelope_duration_s : i64 = 2;
+// no participation impl (only synch of getting the voteconf)
+const participation_duration_s : i64 = 1;
+const vote_duration_s : i64 = 2;
+pub fn get_new_vote_times () -> (TimeSpecExt,TimeSpecExt,TimeSpecExt) {
+  let now = time::get_time();
+  let e = Duration::seconds(envelope_duration_s);
+  let p = Duration::seconds(participation_duration_s);
+  let v = Duration::seconds(vote_duration_s);
+  (
+    TimeSpecExt(now + p),
+    TimeSpecExt(now + p + e),
+    TimeSpecExt(now + p + e + v),
+  )
+}
+
+impl VoteDesc {
+  pub fn new<C : StripleIf> (
+    user : &C,
+    user_private : &[u8],
+    subject : String,
+    replies : Vec<String>,
+    invitations : Vec<Vec<u8>>,
+    ) -> MResult<Self> {
+    let (t1,t2,t3) = get_new_vote_times();
+    // warning we implies it is a public scheme here
+    let (vkey,_) = <<<VoteDesc as StripleImpl>::Kind as StripleKind>::S as SignatureScheme>::new_keypair().map_err(|e|StripleMydhtErr(e))?;
+    let mut vote = VoteDesc {
+      shortkey : "TODO base58 of id after calc init".to_string(),
+      id : Vec::new(),
+      key : vkey,
+      emit_by : Vec::new(),
+      subject,
+      replies,
+      invitations,
+      end_period_envelope : t2,
+      end_period_participation : t1,
+      end_period_vote : t3,
+      sign : Vec::new(),
+      content : None,
+    };
+
+    vote.init_content();
+    // very wrong
+    vote.calc_init(&(user,user_private)).map_err(|e|StripleMydhtErr(e))?;
+    Ok(vote)
+  }
+
+  /// possible because not in striple content (better for poc and could also be better overall)
+  pub fn restart_duration (&mut self) {
+    let (t1,t2,t3) = get_new_vote_times();
+    self.end_period_envelope = t2;
+    self.end_period_participation = t1;
+    self.end_period_vote = t3;
+  }
+  pub fn get_vote_striple_content (&self) -> VoteDescStripleContent {
+    VoteDescStripleContent{
+      subject  : &self.subject,
+      replies : &self.replies,
+    }
+  }
+  // TODO this is call manually , check how to integrate it to serde deserialization
+  // (deserialize_with ?? or call back after struct deser?)
+  pub fn init_content(&mut self) {
+    let mut dest = Cursor::new(Vec::new());
+    // note that we do not put date in content : the vote could therefore be reissued, what is
+    // relevant is the participation report (with all enveloppe and signed by all vote peers) and
+    // its associated signature
+    bincode::serialize_into(&mut dest, &self.get_vote_striple_content(), bincode::Infinite).unwrap();
+    self.content = Some(BCont::OwnedBytes(dest.into_inner()));
+  }
+}
+

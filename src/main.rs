@@ -14,18 +14,24 @@ extern crate mydht_tcp_loop;
 extern crate serde;
 extern crate serde_json;
 extern crate mydht_bincode;
- 
+
+use mydht::rules::DHTRules; 
 use striple::anystriple::{
   Rsa2048Sha512,
 };
 use mydht::storeprop::{
   KVStoreCommand,
+  KVStoreReply,
 };
 use mydht::{
   MyDHTConf,
   ApiCommand,
+  ApiResult,
   QueryPriority,
   PeerPriority,
+  QueryConf,
+  QueryMode,
+  MCReply,
 };
 use mydht::dhtif::{
   Result as MResult,
@@ -64,7 +70,13 @@ use std::net::SocketAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 use mydht::keyval::KeyVal;
-use mydht::utils::SerSocketAddr;
+use mydht::utils::{
+  SerSocketAddr,
+  OneResult,
+  new_oneresult,
+  replace_wait_one_result,
+  clone_wait_one_result,
+};
 use std::path::{Path,PathBuf};
 use mydht_openssl::rsa_openssl::{
   RSAPeer as RSAPeerC,
@@ -295,13 +307,12 @@ fn main() {
 
                 println!("subject : {}", vote.subject);
                 println!("replies : {:?}", vote.replies);
-                let vote = ArcRef::new(MainStoreKV::VoteDesc(vote));
 
                 println!("your vote ?");
                 let mut vote_val = String::new();
                 stdin.read_line(&mut vote_val).unwrap();
                 vote_val.pop();
-                do_vote(&mut sendcommand,vote,vote_val).unwrap();
+                do_vote(&mut sendcommand,vote,vote_val, &fsconf).unwrap();
               },
               Err(e) => {
                 println!("Invalid vote config {:?}",e);
@@ -338,8 +349,29 @@ fn main() {
   println!("exiting.ok");
 }
 
-fn do_vote(main_in : &mut DHTIn<MainDHTConf>, vote : MainStoreKVRef, vote_val : String) -> MResult<()> {
+// this logic can be put in global service better for reuse, yet it requires to call api from
+// global service to peer and a lot of buff for asynch of itself (we should not block and pending
+// buffer needs to be managed), so for now we go simple with blocking api call from outside of
+// mydht. 
+fn do_vote(main_in : &mut DHTIn<MainDHTConf>, vote : VoteDesc, vote_val : String, conf : &VoteConf) -> MResult<()> {
+  // check vote
+  let self_check_ok = {
+    let s : &RSAPeer = conf.me.borrow();
+    if *s.get_id() == *vote.get_from() {
+      assert!(vote.check(s).unwrap() == true);
+      true
+    } else {
+      false
+    }
+  };
+  if !self_check_ok {
+    let pfrom = find_peer(main_in, &conf.me,vote.get_from().as_ref())?;
+    let s : &RSAPeer = pfrom.borrow();
+    assert!(vote.check(s).unwrap() == true);
+  }
 
+  println!("check vote ok");
+  let vote = ArcRef::new(MainStoreKV::VoteDesc(vote));
   // store vote (to make it accessible from other peers)
   let c_store_vote = ApiCommand::call_service(KVStoreCommand::StoreLocally(vote.clone(),1,None));
   main_in.send(c_store_vote)?;
@@ -354,4 +386,35 @@ fn do_vote(main_in : &mut DHTIn<MainDHTConf>, vote : MainStoreKVRef, vote_val : 
 
   // store relation : TODO include as private field of vote (unserialized) and store vote later
   Ok(())
+}
+
+// TODO need to refer me is odd and unjustified : require redesig to avoid call to 'query_message'
+// function which should be internal to mydht
+fn find_peer(main_in : &mut DHTIn<MainDHTConf>,me : &ArcRef<RSAPeer>, peer_id : &[u8]) -> MResult<ArcRef<RSAPeer>> {
+  let queryconf = QueryConf {
+    mode : QueryMode::Asynch, 
+    hop_hist : Some((3,true))
+  }; // note that we only unloop to 3 hop 
+
+  let nb_res = 1;
+  let rules = SimpleRules::new(DHTRULES_MAIN);
+  let o_res = new_oneresult((Vec::with_capacity(nb_res),nb_res,nb_res));
+  let prio = 1;
+  let nb_hop = rules.nbhop(prio);
+  let nb_for = rules.nbquery(prio);
+  let qm = queryconf.query_message(me.borrow(), nb_res, nb_hop, nb_for, prio);
+  let peer_q = ApiCommand::call_peer_reply(KVStoreCommand::Find(qm,peer_id.to_vec(),None),o_res.clone());
+  main_in.send(peer_q)?;
+  let mut o_res = clone_wait_one_result(&o_res,None).unwrap();
+  // fail on peer not found (TODO should retry)
+  assert!(o_res.0.len() == 1, "Peer not found {:?}", peer_id);
+  let v = o_res.0.pop().unwrap();
+  let result : Option<ArcRef<RSAPeer>> = if let ApiResult::ServiceReply(MCReply::PeerStore(KVStoreReply::FoundApi(ores,_))) = v {
+    ores
+  } else if let ApiResult::ServiceReply(MCReply::PeerStore(KVStoreReply::FoundApiMult(mut vres,_))) = v {
+    vres.pop()
+  } else {
+    None
+  };
+  Ok(result.unwrap())
 }
