@@ -295,6 +295,7 @@ fn main() {
           break
       },
       "vote_file\n" => {
+        println!("file path?");
         let mut path = String::new();
         stdin.read_line(&mut path).unwrap();
         path.pop();
