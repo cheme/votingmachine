@@ -92,4 +92,3 @@ impl<P : Peer,RP : Ref<P> + Clone> Service for VotingService<P,RP> {
     Ok(command_out)
   }
 }
- 

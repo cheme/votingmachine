@@ -15,6 +15,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate mydht_bincode;
 
+ 
 use mydht::rules::DHTRules; 
 use striple::anystriple::{
   Rsa2048Sha512,
@@ -89,6 +90,12 @@ use votingmachine::maindht::{
   MainDHTConf as MainDHTConfC,
   DHTRULES_MAIN,
 };
+use votingmachine::anodht::{
+  AnoDHTConf as AnoDHTConfC,
+  new_ano_conf,
+  AnoAddress,
+  AnoPeer,
+};
 use mydht::utils::{
   Ref,
   ArcRef,
@@ -98,6 +105,7 @@ use mydht_tcp_loop::{
 };
 use vote::{
   VoteDesc,
+  Envelope,
   MainStoreKV,
   MainStoreKVRef,
 };
@@ -120,6 +128,7 @@ type RSAPeerMgmt = RSAPeerMgmtC<RSA2048SHA512AES256>;
 pub struct StriplePeerMgmt(RSAPeerMgmt);
 
 type MainDHTConf = MainDHTConfC<RSAPeer,StriplePeerMgmt>;
+type AnoDHTConf = AnoDHTConfC<RSAPeer,StriplePeerMgmt>;
 
 impl PeerMgmtMeths<RSAPeer> for StriplePeerMgmt {
   fn challenge (&self, p: &RSAPeer) -> Vec<u8> {
@@ -160,15 +169,16 @@ fn new_vote_conf (stdin : &mut StdinLock, path : &Path) -> IoResult<VoteConf> {
   println!("creating a new user, what is your id/name?");
   stdin.read_line(&mut newname).unwrap();
   newname.pop();
-  println!("address initialize to default ipv4 local host \"127.0.0.1:6663\"");
+  println!("address initialize to default ipv4 local host \"127.0.0.1:6663\" and ano \"127.0.0.1:7663\"");
   let mut me2 = RSAPeerC::new (SerSocketAddr(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127,0,0,1),6663))),newname).unwrap();
+  let secadd = SerSocketAddr(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127,0,0,1),7663)));
   //let me2 = RSAPeer::new (newname, None, IpAddr::new_v4(127,0,0,1), 6663);
   println!("tcp timeout default to 4 seconds");
   {
     let mut tmp_file = File::create(path).unwrap();
   //      tmp_file.write_all(json::encode(&fsconf2).unwrap().into_bytes().as_slice());
     me2.set_write_private(true);
-    let m = ArcRef::new(StriplePeer::new(me2).unwrap());
+    let m = ArcRef::new(StriplePeer::new(me2,secadd).unwrap());
     let fsconf2 = VoteConf {
       me : m,
       tcptimeout : 4,
@@ -268,18 +278,38 @@ fn main() {
     ).unwrap()
   };
  
+  let ano_tcp_transport = {
+    let m = AnoPeer(fsconf.me.clone());
+    Tcp::new(
+      m.get_address(),
+      Some(Duration::from_secs(5)), // timeout
+      true,//mult
+    ).unwrap()
+  };
 
   let conf = MainDHTConfC {
     me : fsconf.me.clone(),
-    others : boot_peers,
+    others : boot_peers.clone(),
     msg_enc : Bincode,
     transport : Some(main_tcp_transport),
 
     peer_mgmt : StriplePeerMgmt(RSAPeerMgmt::new()),
     rules : SimpleRules::new(DHTRULES_MAIN),
   };
+  let conf2 = MainDHTConfC {
+    me : fsconf.me.clone(),
+    others : boot_peers,
+    msg_enc : Bincode,
+    transport : Some(ano_tcp_transport),
+
+    peer_mgmt : StriplePeerMgmt(RSAPeerMgmt::new()),
+    rules : SimpleRules::new(DHTRULES_MAIN),
+  };
+
+  let anoconf = new_ano_conf(conf2).unwrap();
 
   let (mut sendcommand,_recv) = conf.start_loop().unwrap();
+  let (mut anosendcommand,_recv) = anoconf.start_loop().unwrap();
 
 
   // Interactive mode TODO expand command syntax to not run interactive mode (only if -I), with
@@ -313,7 +343,7 @@ fn main() {
                 let mut vote_val = String::new();
                 stdin.read_line(&mut vote_val).unwrap();
                 vote_val.pop();
-                do_vote(&mut sendcommand,vote,vote_val, &fsconf).unwrap();
+                do_vote(&mut sendcommand, &mut anosendcommand, vote,vote_val, &fsconf).unwrap();
               },
               Err(e) => {
                 println!("Invalid vote config {:?}",e);
@@ -354,38 +384,65 @@ fn main() {
 // global service to peer and a lot of buff for asynch of itself (we should not block and pending
 // buffer needs to be managed), so for now we go simple with blocking api call from outside of
 // mydht. 
-fn do_vote(main_in : &mut DHTIn<MainDHTConf>, vote : VoteDesc, vote_val : String, conf : &VoteConf) -> MResult<()> {
+fn do_vote(main_in : &mut DHTIn<MainDHTConf>, ano_in : &mut DHTIn<AnoDHTConf>, vote : VoteDesc, vote_val : String, conf : &VoteConf) -> MResult<()> {
   // check vote
   let self_check_ok = {
     let s : &RSAPeer = conf.me.borrow();
     if *s.get_id() == *vote.get_from() {
+      println!("self vote check...");
       assert!(vote.check(s).unwrap() == true);
+      println!("self vote check pass");
       true
     } else {
       false
     }
   };
   if !self_check_ok {
+    println!("find vote emitter...");
     let pfrom = find_peer(main_in, &conf.me,vote.get_from().as_ref())?;
     let s : &RSAPeer = pfrom.borrow();
+    println!("vote check...");
     assert!(vote.check(s).unwrap() == true);
+    println!("vote check pass");
   }
 
   println!("check vote ok");
-  let vote = ArcRef::new(MainStoreKV::VoteDesc(vote));
+  let voteref = ArcRef::new(MainStoreKV::VoteDesc(vote));
   // store vote (to make it accessible from other peers)
-  let c_store_vote = ApiCommand::call_service(KVStoreCommand::StoreLocally(vote.clone(),1,None));
+  let c_store_vote = ApiCommand::call_service(KVStoreCommand::StoreLocally(voteref.clone(),1,None));
   main_in.send(c_store_vote)?;
 
-  // make our enveloppe
+  let votedesc : &MainStoreKV = voteref.borrow();
+  let votedesc = votedesc.get_votedesc().unwrap();
+  // make our enveloppe (public sign by votedesc striple)
+  let envelope = Envelope::new(votedesc)?;
+  assert!(true == false);
+//  assert!(envelope.check(votedesc).unwrap()==true); useless check except for debuging purpose)
+  println!("initialized envolope");
+
+  // store enveloppe with pk : not in POC (use this object for next steps no persistence)
+ 
+  // share enveloppe anonymously (store + query all)
+
+  // query all enveloppe of anonymous dht
+
+  // create participation (sign by our peer striple)
+
+  // share participation (store + query all)
+ 
+  // todo (not in poc) public synchro of everyone validating participation (in POC panic peer if
+  // invalid)
+ 
+  // make vote (sign by enveloppe, about votedesc)
   
+  // share votes (store + query all) in anonymous dht
 
-  // store enveloppe
+  // make result (valid my vote and nb vote) : sign by user
+  
+  // share results (store + query all)
 
+  // print global vote result
 
-  // make enveloppe vote peer relation
-
-  // store relation : TODO include as private field of vote (unserialized) and store vote later
   Ok(())
 }
 

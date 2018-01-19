@@ -44,12 +44,20 @@ pub mod striples;
 // struct : when serializing of signing it could be good to add this typing info keyval for KeyVal
 // derivation and for sign (kind of like version (fn get_about()) encoding int use in wot).
 
-/// type for any storable element
+/// type for any storable element (MainDHT)
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
 pub enum MainStoreKV {
   VoteDesc(VoteDesc),
 }
 pub type MainStoreKVRef = ArcRef<MainStoreKV>;
+
+/// type for any storable element (AnoDHT)
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
+pub enum AnoStoreKV {
+  Envelope(Envelope),
+}
+pub type AnoStoreKVRef = ArcRef<AnoStoreKV>;
+
 /*#[derive(Debug,Clone,Serialize,Deserialize)]
 pub enum MainStoreKVRef {
   VoteDesc(ArcRef<VoteDesc>),
@@ -76,6 +84,8 @@ impl Ref<MainStoreKV> for MainStoreKVRef {
     }
   }
 }*/
+
+//--------------------MainStoreKV---------------------------
 impl SettableAttachment for MainStoreKV {
   fn set_attachment(&mut self, att : &Attachment) -> bool {
     match *self {
@@ -83,7 +93,6 @@ impl SettableAttachment for MainStoreKV {
     }
   }
 }
-impl SettableAttachment for VoteDesc { }
 
 impl KeyVal for MainStoreKV {
   type Key = Vec<u8>;
@@ -114,6 +123,62 @@ impl KeyVal for MainStoreKV {
     panic!("currently unused consider removal")
   }
 }
+
+impl MainStoreKV {
+  pub fn get_votedesc(&self) -> Option<&VoteDesc> {
+/*    if let MainStoreKV::VoteDesc(ref inner) = *self {
+      Some(inner)
+    } else {
+      None
+    }*/
+    let MainStoreKV::VoteDesc(ref inner) = *self;Some(inner)
+  }
+
+}
+//----------------------------AnoStoreKV---------------------
+impl SettableAttachment for AnoStoreKV {
+  fn set_attachment(&mut self, att : &Attachment) -> bool {
+    match *self {
+      AnoStoreKV::Envelope(ref mut inner) => inner.set_attachment(att),
+    }
+  }
+}
+
+impl KeyVal for AnoStoreKV {
+  type Key = Vec<u8>;
+  fn attachment_expected_size(&self) -> usize {
+    match *self {
+      AnoStoreKV::Envelope(ref inner) => inner.attachment_expected_size(),
+    }
+  }
+  fn get_key_ref(&self) -> &Self::Key {
+    match *self {
+      AnoStoreKV::Envelope(ref inner) => inner.get_key_ref(),
+    }
+  }
+  fn get_key(&self) -> Self::Key {
+    match *self {
+      AnoStoreKV::Envelope(ref inner) => inner.get_key(),
+    }
+  }
+  fn get_attachment(&self) -> Option<&Attachment> {
+    match *self {
+      AnoStoreKV::Envelope(ref inner) => inner.get_attachment(),
+    }
+  }
+  fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+    panic!("currently unused consider removal")
+  }
+  fn decode_kv<'de,D:Deserializer<'de>> (d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+    panic!("currently unused consider removal")
+  }
+}
+
+
+//---------------------------VoteDesc--------------------------------
+
+
+impl SettableAttachment for VoteDesc { }
 impl KeyVal for VoteDesc {
   type Key = Vec<u8>;
   fn attachment_expected_size(&self) -> usize { 0 }
@@ -194,29 +259,84 @@ pub struct VoteDescStripleContent<'a> {
  
 
 impl PartialEq for VoteDesc {
-
   /// fast comp (fine if striple are checked)
   fn eq(&self, other: &VoteDesc) -> bool {
     self.id == other.id
   }
 }
 
-impl Eq for VoteDesc {
-}
+impl Eq for VoteDesc { }
 
+//---------------------------Envelope--------------------------------
 
-// pair key over id and vote id
+#[derive(Debug,Serialize,Deserialize,Clone)]
+/// pair key over id and vote id
 pub struct Envelope {
-  /// envelope id aka public key
+  /// envelope id aka derived public key
   id : Vec<u8>,
+  publickey : Vec<u8>,
+  #[serde(skip_serializing,skip_deserializing)]
   /// pk not sent obviously
-  privateKey : Vec<u8>,
+  privatekey : Vec<u8>,
   /// vote id
-  votekey : String,
+  votekey : Vec<u8>,
   /// sign by VoteDesc privatekey
   sign : Vec<u8>,
 }
 
+
+impl PartialEq for Envelope {
+  /// fast comp (fine if striple are checked)
+  fn eq(&self, other: &Envelope) -> bool {
+    self.id == other.id
+  }
+}
+
+impl Eq for Envelope { }
+
+impl SettableAttachment for Envelope { }
+
+impl KeyVal for Envelope {
+  type Key = Vec<u8>;
+  fn attachment_expected_size(&self) -> usize { 0 }
+  fn get_key_ref(&self) -> &Self::Key {
+    &self.id
+  }
+  fn get_key(&self) -> Self::Key {
+    self.id.clone()
+  }
+  fn get_attachment(&self) -> Option<&Attachment> {
+    None
+  }
+  fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+    panic!("currently unused consider removal")
+  }
+  fn decode_kv<'de,D:Deserializer<'de>> (d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+    panic!("currently unused consider removal")
+  }
+}
+
+impl Envelope {
+  pub fn new (
+    vote_desc : &VoteDesc,
+    ) -> MResult<Self> {
+
+    let (vkey,pkey) = <<<Envelope as StripleImpl>::Kind as StripleKind>::S as SignatureScheme>::new_keypair().map_err(|e|StripleMydhtErr(e))?;
+
+    let mut envelope = Envelope {
+      id: Vec::new(),
+      publickey: vkey, 
+      privatekey: pkey,
+      votekey: Vec::new(),
+      sign: Vec::new(),
+    };
+
+    envelope.calc_init(vote_desc).map_err(|e|StripleMydhtErr(e))?;
+    Ok(envelope)
+  }
+ 
+}
+//----------------------.....
 pub struct Participation {
   /// participation id
   id : Vec<u8>,
@@ -227,7 +347,7 @@ pub struct Participation {
   /// vote key andenvelopes acknowledges (we include it as we may allow a bias in number of envelopes signed
   /// (convergence of every enveloppe is not easy)) - simplification to number of envelope plus
   /// votekey may be used (more realist for big).
-  envelopes   : Vec<Vec<u8>>,
+  envelopes : Vec<Vec<u8>>,
   /// sign of envelopes by User privatekey
   sign : Vec<u8>,
 }
@@ -345,4 +465,5 @@ impl VoteDesc {
     self.content = Some(BCont::OwnedBytes(dest.into_inner()));
   }
 }
+
 

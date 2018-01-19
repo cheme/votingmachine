@@ -1,5 +1,8 @@
 //! striple implementation of various vote objects
 use mydht::utils::TimeSpecExt;
+use anodht::{
+  AnoAddress,
+};
 use time::{
   self,
   Timespec,
@@ -23,6 +26,7 @@ use striple::striple::{
   from_error,
   from_option,
   Striple,
+  PubStriple,
   ref_builder_id_copy,
   Result as StripleResult,
   Error as StripleError,
@@ -38,7 +42,7 @@ use serde::de::Error as SerdeDeError;
 use vote::{
   VoteDesc,
   VoteDescStripleContent,
-  
+  Envelope,
 };
 use mydht::mydhtresult::Result as MResult;
 use mydht::mydhtresult::Error as MError;
@@ -76,6 +80,26 @@ use mydht::keyval::{
   Attachment,
 };
 
+
+
+pub struct StripleMydhtErr(pub StripleError);
+impl From<StripleMydhtErr> for MError {
+  #[inline]
+  fn from(e : StripleMydhtErr) -> MError {
+    MError((e.0).0, MErrorKind::ExternalLib, (e.0).2)
+  }
+}
+pub struct GenErr<E : ErrorTrait>(E);
+// TODO move to mydht error lib
+impl<E : ErrorTrait> From<GenErr<E>> for MError {
+  #[inline]
+  fn from(e : GenErr<E>) -> MError {
+    MError(format!("{}, cause : {:?}",e.0.description(),e.0.cause()), MErrorKind::ExternalLib, None)
+  }
+}
+
+
+
 pub struct StripleRefs {
   // peers are signed from a public striple kind
   // this kind is build with striple command (from base)
@@ -105,6 +129,7 @@ fn init_striple_refs() -> StripleResult<StripleRefs> {
   })
  
 }
+
 /*
 #[derive(Debug,Clone)]
 /// associate peer rsa conf with striple kind conf
@@ -146,6 +171,9 @@ impl<K : StripleKind,C : OpenSSLConf> OpenSSLConf for StriplePeerConf<K,C> {
 /*impl<A : KVContent,B : Address> StripleImpl for StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
   type Kind = Rsa2048Sha512;
 }*/
+
+//----------------------------------Peer----------------------------------------------------------
+
 //impl<P : Peer, S : StripleKind> StripleImpl for StriplePeer<P,S> {
 impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StripleImpl for StriplePeer<A,B,C,S> {
   type Kind = S;
@@ -169,29 +197,13 @@ impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> InstantiableStr
 }
 
 
-pub struct StripleMydhtErr(pub StripleError);
-impl From<StripleMydhtErr> for MError {
-  #[inline]
-  fn from(e : StripleMydhtErr) -> MError {
-    MError((e.0).0, MErrorKind::ExternalLib, (e.0).2)
-  }
-}
-pub struct GenErr<E : ErrorTrait>(E);
-// TODO move to mydht error lib
-impl<E : ErrorTrait> From<GenErr<E>> for MError {
-  #[inline]
-  fn from(e : GenErr<E>) -> MError {
-    MError(format!("{}, cause : {:?}",e.0.description(),e.0.cause()), MErrorKind::ExternalLib, None)
-  }
-}
-
-
 
 impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StriplePeer<A,B,C,S> {
 //impl<A : KVContent,B : Address> StriplePeer<RSAPeer<A,B,RSA2048SHA512AES256>> {
-  pub fn new(p : RSAPeer<A,B,C>) -> MResult<Self> {
+  pub fn new(p : RSAPeer<A,B,C>, secaddress : B) -> MResult<Self> {
     let mut peer = StriplePeer {
       inner : p,
+      secaddress,
       id : Vec::new(),
       sig : Vec::new(),
       from : Vec::new(),
@@ -304,6 +316,7 @@ pub struct StriplePeer<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKin
   id : Vec<u8>,
   from : Vec<u8>,
   sig : Vec<u8>,
+  secaddress : B,
 
   //#[serde(skip_serializing,deserialize_with="init_content")]
   #[serde(skip_serializing,skip_deserializing)]
@@ -322,6 +335,13 @@ impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> PartialEq for St
 }
 
 impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> Eq for StriplePeer<A,B,C,S> {
+}
+
+impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> AnoAddress for StriplePeer<A,B,C,S> {
+  type Address = B;
+  fn get_sec_address (&self) -> &Self::Address {
+    &self.secaddress
+  }
 }
 
 impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> Peer for StriplePeer<A,B,C,S> {
@@ -425,11 +445,17 @@ impl<'a, P : StriplePeerIf> AsStriple<'a, <P as StriplePeerIf>::Kind> for Stripl
 //
 
 
-//----------
+//------------------------VoteDesc------------------------------------
+
+
+
 //vote desc is a public striiple (no private key exchanged for enveloppe creation)
 impl StripleImpl for VoteDesc {
   type Kind = PubSha512;
 }
+// TODO bad design (redundant with previous Kind : at least macro this def??)
+impl PubStriple for VoteDesc { }
+
 impl InstantiableStripleImpl for VoteDesc {
   fn init(&mut self,
     from : Vec<u8>,
@@ -481,4 +507,62 @@ impl StripleFieldsIf for VoteDesc {
   }
 
 }
+
+
+//------------------------Envelope------------------------------------
+
+impl StripleImpl for Envelope {
+  type Kind = Rsa2048Sha512;
+}
+
+impl StripleFieldsIf for Envelope {
+  #[inline]
+  fn get_algo_key(&self) -> ByteSlice {
+    ByteSlice::Static(<<Self as StripleImpl>::Kind as StripleKind>::get_algo_key())
+  }
+  fn get_enc(&self) -> ByteSlice {
+    // TODO get static value from loaded ref!!
+    ByteSlice::Static(NOKEY)
+  }
+  fn get_id(&self) -> &[u8] {
+    &self.id[..]
+  }
+  fn get_from(&self) -> ByteSlice {
+    ByteSlice::Owned(&self.votekey[..])
+  }
+  fn get_about(&self) -> ByteSlice {
+    // this is null about TODO create a striple to fill it ? (from is already defining user : about
+    // could be 'is an instance of' TODO change striple to allow returning &'static or & (use enum) 
+    ByteSlice::Owned(&self.id[..])
+  }
+  // TODO change striple interface to allow calculate each time
+  fn get_content<'a>(&'a self) -> Option<&'a BCont<'a>> {
+    None
+  }
+
+  fn get_content_ids(&self) -> Vec<&[u8]> {
+    Vec::new()
+  }
+
+  fn get_key(&self) -> &[u8] {
+    &self.publickey[..]
+  }
+
+  fn get_sig(&self) -> &[u8] {
+    &self.sign[..]
+  }
+
+}
+
+impl InstantiableStripleImpl for Envelope {
+  fn init(&mut self,
+    from : Vec<u8>,
+    sig : Vec<u8>,
+    id : Vec<u8>) {
+    self.id = id;
+    self.votekey = from;
+    self.sign = sig;
+  }
+}
+
 

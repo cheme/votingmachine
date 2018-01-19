@@ -28,6 +28,7 @@ serde = "~1.0.10"
 #serde_derive = "~1.0.10"
 serde_json = "~1.0.2"
 rust-base58 = "*"
+sized_windows_lim = { git = "https://github.com/cheme/readwrite-comp.git" }
 
 [dependencies.serde_derive]
 git = "https://github.com/cheme/serde.git"
@@ -54,4 +55,7 @@ path = "../mydht/mydht-inefficientmap"
 [dependencies.striple]
 #git = "https://github.com/cheme/rust-striple.git"
 path = "../rust-striple"
+[dependencies.mydht-tunnel]
+#git = "https://github.com/cheme/mydht.git"
+path = "../mydht/mydht-tunnel"
 
