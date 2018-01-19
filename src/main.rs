@@ -416,7 +416,7 @@ fn do_vote(main_in : &mut DHTIn<MainDHTConf>, ano_in : &mut DHTIn<AnoDHTConf>, v
   let votedesc = votedesc.get_votedesc().unwrap();
   // make our enveloppe (public sign by votedesc striple)
   let envelope = Envelope::new(votedesc)?;
-  assert!(true == false);
+  //assert!(true == false);
 //  assert!(envelope.check(votedesc).unwrap()==true); useless check except for debuging purpose)
   println!("initialized envolope");
 
