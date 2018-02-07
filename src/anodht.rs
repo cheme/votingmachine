@@ -5,6 +5,7 @@ use maindht::{
   MainDHTConf,
 };
 use mydht::dhtimpl::{
+  NoShadow,
   Cache,
 }; 
 use mydht_openssl::rsa_openssl::{
@@ -201,10 +202,10 @@ impl<P : Peer + AnoAddress<Address = SerSocketAddr>> SettableAttachment for AnoP
  
 impl<P : Peer + AnoAddress<Address = SerSocketAddr>> Peer for AnoPeer<P> {
   type Address = <P as AnoAddress>::Address;
-  type ShadowWAuth = <P as Peer>::ShadowWAuth;
-  type ShadowRAuth = <P as Peer>::ShadowRAuth;
-  type ShadowWMsg = <P as Peer>::ShadowWMsg;
-  type ShadowRMsg = <P as Peer>::ShadowRMsg;
+  type ShadowWAuth = <P as Peer>::ShadowWMsg;
+  type ShadowRAuth = <P as Peer>::ShadowRMsg;
+  type ShadowWMsg = NoShadow;
+  type ShadowRMsg = NoShadow;
   fn get_address (&self) -> &Self::Address {
     let inner : &P = self.0.borrow();
     inner.get_sec_address()
@@ -213,21 +214,22 @@ impl<P : Peer + AnoAddress<Address = SerSocketAddr>> Peer for AnoPeer<P> {
     let inner : &P = self.0.borrow();
     inner.get_sec_address().clone()
   }
+  // shadower msg could be better TODO test
   fn get_shadower_r_auth (&self) -> Self::ShadowRAuth {
-    let inner : &P = self.0.borrow();
-    inner.get_shadower_r_auth()
-  }
-  fn get_shadower_r_msg (&self) -> Self::ShadowRMsg {
     let inner : &P = self.0.borrow();
     inner.get_shadower_r_msg()
   }
+  // tunnel dht is currently running on NoAuth, so the msg shadower is used
+  // rsa peer w shadower is not compatible with this mode : using NoShadow
+  fn get_shadower_r_msg (&self) -> Self::ShadowRMsg {
+    NoShadow
+  }
   fn get_shadower_w_auth (&self) -> Self::ShadowWAuth {
     let inner : &P = self.0.borrow();
-    inner.get_shadower_w_auth()
+    inner.get_shadower_w_msg()
   }
   fn get_shadower_w_msg (&self) -> Self::ShadowWMsg {
-    let inner : &P = self.0.borrow();
-    inner.get_shadower_w_msg()
+    NoShadow
   }
 
 }
@@ -251,7 +253,7 @@ where <P as KeyVal>::Key : Hash,
       <P as AnoAddress>::Address : Hash,
 {
   const INIT_ROUTE_LENGTH : usize = 4;
-  const INIT_ROUTE_BIAS : usize = 1;
+  const INIT_ROUTE_BIAS : usize = 0;
   type PeerKey = <Self::Peer as KeyVal>::Key;
   type Peer = AnoPeer<P>;
   type PeerRef = CloneRef<AnoPeer<P>>;
@@ -272,7 +274,7 @@ where <P as KeyVal>::Key : Hash,
   type AddressCache = HashMap<<Self::Peer as Peer>::Address,AddressCacheEntry>;
   type ChallengeCache = HashMap<Vec<u8>,ChallengeEntry<MyDHTTunnelConfType<Self>>>;
   /// must be random as it decide which peer will store (not use to build tunnel but to choose
-  /// dest)
+  /// dest) -> actually not
   type Route = RandomRoute;
   type PeerKVStore = SimpleCache<Self::Peer,HashMap<<Self::Peer as KeyVal>::Key,Self::Peer>>;
 
@@ -453,7 +455,7 @@ impl<MC : MyDHTConf> Route<MC> for RandomRoute
 #[derive(Clone,Serialize,Deserialize,Debug)]
 #[serde(bound(deserialize = ""))]
 pub enum StoreAnoMsg {
-  STORE_ENVELOPE(Envelope),
+  STORE_ENVELOPE(ArcRef<Envelope>),
 }
 
 impl SettableAttachments for StoreAnoMsg {
@@ -471,7 +473,7 @@ impl GettableAttachments for StoreAnoMsg {
 /// TODO proxy to maindht store : need channel to store localy
 pub struct AnoService<MC : MyDHTTunnelConf>(<MC as MyDHTTunnelConf>::PeerRef);
 #[derive(Clone)]
-pub struct AnoServiceICommand(StoreAnoMsg);
+pub struct AnoServiceICommand(pub StoreAnoMsg);
 
 impl OptFrom<AnoServiceICommand> for StoreAnoMsg {
   fn can_from(_ : &AnoServiceICommand) -> bool { true }
@@ -509,12 +511,26 @@ impl<P> PeerStatusListener<P> for AnoServiceICommand {
     unreachable!()
   }
 }
-
-impl<C : MyDHTTunnelConf> Service for AnoService<C> {
-  type CommandIn = GlobalCommand<<C as MyDHTTunnelConf>::PeerRef,<C as MyDHTTunnelConf>::InnerCommand>;
-  type CommandOut = GlobalTunnelReply<C>;
+impl<P : Peer + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>> Service for AnoService<AnoTunDHTConf<P,PM>>
+where <P as KeyVal>::Key : Hash,
+      <P as AnoAddress>::Address : Hash,
+{
+//impl<C : MyDHTTunnelConf<InnerCommand = AnoServiceICommand>> Service for AnoService<C> {
+  type CommandIn = GlobalCommand<<AnoTunDHTConf<P,PM> as MyDHTTunnelConf>::PeerRef,<AnoTunDHTConf<P,PM> as MyDHTTunnelConf>::InnerCommand>;
+  //type CommandOut = GlobalTunnelReply<C>;
+  type CommandOut = GlobalTunnelReply<AnoTunDHTConf<P,PM>>;
   fn call<S : SpawnerYield>(&mut self, req: Self::CommandIn, _async_yield : &mut S) -> Result<Self::CommandOut> {
-    unimplemented!()
+    match req {
+
+      GlobalCommand::Distant(opr,gsc) => {
+    //Distant(Option<PR>, GSC),
+        unimplemented!()
+      },
+      GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(enveloperef))) => {
+        // proxy message
+        Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(enveloperef))))
+      },
+    }
   }
 }
 #[derive(Clone)]

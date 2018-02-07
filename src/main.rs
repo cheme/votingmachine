@@ -2,6 +2,7 @@
 
 #[macro_use] extern crate mydht;
 #[macro_use] extern crate log;
+extern crate mydht_tunnel;
 extern crate votingmachine;
 extern crate striple;
 //extern crate env_logger;
@@ -34,6 +35,15 @@ use mydht::{
   QueryMode,
   MCReply,
 };
+use mydht_tunnel::{
+  MyDHTTunnelConf,
+  MyDHTTunnelConfType,
+  GlobalTunnelReply,
+  SSWCache,
+  SSRCache,
+  GlobalTunnelCommand,
+};
+
 use mydht::dhtif::{
   Result as MResult,
 };
@@ -95,6 +105,8 @@ use votingmachine::anodht::{
   new_ano_conf,
   AnoAddress,
   AnoPeer,
+  StoreAnoMsg,
+  AnoServiceICommand,
 };
 use mydht::utils::{
   Ref,
@@ -415,7 +427,17 @@ fn do_vote(main_in : &mut DHTIn<MainDHTConf>, ano_in : &mut DHTIn<AnoDHTConf>, v
   let votedesc : &MainStoreKV = voteref.borrow();
   let votedesc = votedesc.get_votedesc().unwrap();
   // make our enveloppe (public sign by votedesc striple)
-  let envelope = Envelope::new(votedesc)?;
+  /* explicitely safe version
+  let (envelope, envpk) = {
+    let mut envelope = Envelope::new(votedesc)?;
+    let envpk = envelope.privatekey();
+    envelope.privatekey = Vec::new();
+    (envelope, envpk)
+  };*/
+
+  // keep localy envelope with pk (pk not serialized through serde so vec null is send).
+  let enveloperef = ArcRef::new(Envelope::new(votedesc)?);
+
   //assert!(true == false);
 //  assert!(envelope.check(votedesc).unwrap()==true); useless check except for debuging purpose)
   println!("initialized envolope");
@@ -423,6 +445,11 @@ fn do_vote(main_in : &mut DHTIn<MainDHTConf>, ano_in : &mut DHTIn<AnoDHTConf>, v
   // store enveloppe with pk : not in POC (use this object for next steps no persistence)
  
   // share enveloppe anonymously (store + query all)
+  //TODO add apiid to kvstore or create push for kvstore (similar to store locally
+  //TODO run with reply ??
+  let c_store_env = GlobalTunnelCommand::Inner(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(enveloperef.clone())));
+  let command = ApiCommand::call_service(c_store_env);
+  ano_in.send(command)?;
 
   // query all enveloppe of anonymous dht
 
