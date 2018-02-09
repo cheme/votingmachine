@@ -30,6 +30,7 @@ use mydht::{
   Route,
   IndexableWriteCache,
   PeerPriority,
+  MainLoopCommand,
 };
 
 use mydht::api::{
@@ -50,6 +51,9 @@ use service::VotingService;
 use mydht::service::{
   Service,
   SpawnerYield,
+  SpawnChannel,
+  SpawnSend,
+  MioSend,
 };
 use mydht::{
   GlobalCommand,
@@ -149,21 +153,37 @@ use self::sized_windows_lim::{
   SizedWindowsParams,
   SizedWindows,
 };
-pub trait AnoAddress {
-  type Address;
-  fn get_sec_address (&self) -> &Self::Address;
-}
 use mydht::keyval::{
   SettableAttachment,
   SettableAttachments,
   GettableAttachments,
   Attachment,
 };
+use mydht::api::{
+  DHTIn,
+};
 
-pub type AnoDHTConf<P,SP> = MyDHTTunnelConfType<AnoTunDHTConf<P,SP>>;
-pub fn new_ano_conf<P : Peer + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>>(tc : AnoTunDHTConf<P,PM>)
- -> Result<AnoDHTConf<P,PM>> 
+// local type alias
+type MLSend<MC : MyDHTConf> = <MC::MainLoopChannelIn as SpawnChannel<MainLoopCommand<MC>>>::Send;
+
+pub trait AnoAddress {
+  type Address;
+  fn get_sec_address (&self) -> &Self::Address;
+}
+
+pub type AnoDHTConf<P,SP,SI> = MyDHTTunnelConfType<AnoTunDHTConf<P,SP,SI>>;
+
+pub type AnoTunDHTConf2<P,PM,MP,SPM> = AnoTunDHTConf<P,PM,MainDHTConf<MP,SPM>>;
+
+pub fn new_ano_conf<P : Peer + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>, 
+  MP : Peer<Address = SerSocketAddr>,
+  SPM : PeerMgmtMeths<MP>,
+  >(tc : AnoTunDHTConf2<P,PM,MP,SPM>)
+ -> Result<AnoDHTConf<P,PM,MainDHTConf<MP,SPM>>> 
 where <P as KeyVal>::Key : Hash,
+      <MP as KeyVal>::Key : Hash,
+      //MainLoopSendIn<SI> : Send,
+      //MLSend<SI> : Send,
 {
   MyDHTTunnelConfType::new(
     tc,
@@ -175,9 +195,11 @@ where <P as KeyVal>::Key : Hash,
     None,
     None)
 }
+
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
 #[serde(bound(deserialize = ""))]
 pub struct AnoPeer<P : Peer + AnoAddress<Address = SerSocketAddr>> (pub ArcRef<P>);
+
 impl<P : Peer + AnoAddress<Address = SerSocketAddr>> KeyVal for AnoPeer<P> {
   type Key = <P as KeyVal>::Key;
   fn attachment_expected_size(&self) -> usize {
@@ -234,7 +256,15 @@ impl<P : Peer + AnoAddress<Address = SerSocketAddr>> Peer for AnoPeer<P> {
 
 }
 
-pub type AnoTunDHTConf<P,PM> = MainDHTConf<P,PM>;
+pub struct AnoTunDHTConf<P,PM,SI : MyDHTConf> {
+  pub conf : MainDHTConf<P,PM>,
+  // sibling dht api input : only a send as we address directly the mio service (otherwhise a
+  // handle would be needed (added optional for possible smarter addressing through weak handle)!!!
+  // In fact handle could be include in a spawn send composition if neede
+  pub main_api : Option<DHTIn<SI>>,
+}
+
+
 /*pub struct AnoTunDHTConf<P,PM> {
   pub me : ArcRef<P>,
   pub others : Option<Vec<ArcRef<P>>>,
@@ -247,10 +277,17 @@ pub type AnoTunDHTConf<P,PM> = MainDHTConf<P,PM>;
   pub rules : SimpleRules,
 }*/
 
-
-impl<P : Peer + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>> MyDHTTunnelConf for AnoTunDHTConf<P,PM> 
+impl<
+  P : Peer + AnoAddress<Address = SerSocketAddr>, 
+  PM : PeerMgmtMeths<P>, 
+  MP : Peer<Address = SerSocketAddr>,
+  SPM : PeerMgmtMeths<MP>,
+//  SI : MyDHTConf
+  > MyDHTTunnelConf for AnoTunDHTConf2<P,PM,MP,SPM> 
 where <P as KeyVal>::Key : Hash,
+      <MP as KeyVal>::Key : Hash,
       <P as AnoAddress>::Address : Hash,
+//      MLSend<SI> : Send,
 {
   const INIT_ROUTE_LENGTH : usize = 4;
   const INIT_ROUTE_BIAS : usize = 0;
@@ -259,8 +296,8 @@ where <P as KeyVal>::Key : Hash,
   type PeerRef = CloneRef<AnoPeer<P>>;
   type InnerCommand = AnoServiceICommand;
   type InnerReply = AnoServiceIReply;
-  type InnerService = AnoService<Self>;
-  type InnerServiceProto = ();
+  type InnerService = AnoService<Self,MainDHTConf<MP,SPM>>;
+  type InnerServiceProto = MioSend<MLSend<MainDHTConf<MP,SPM>>>;
   type Transport = Tcp;
   type TransportAddress = SerSocketAddr;
   type MsgEnc = Bincode;
@@ -291,18 +328,22 @@ where <P as KeyVal>::Key : Hash,
   type CacheErR = HashMap<Vec<u8>,Vec<MultipleErrorInfo>>;
  
   fn init_ref_peer(&mut self) -> Result<Self::PeerRef> {
-    Ok(CloneRef::new(AnoPeer(self.me.clone())))
+    Ok(CloneRef::new(AnoPeer(self.conf.me.clone())))
   }
 
   fn init_inner_service_proto(&mut self) -> Result<Self::InnerServiceProto> {
-    Ok(())
+    let maindhtin = replace(&mut self.main_api,None).unwrap();
+    Ok(maindhtin.main_loop)
   }
-  fn init_inner_service(_ : Self::InnerServiceProto, me : Self::PeerRef) -> Result<Self::InnerService> {
-    Ok(AnoService(me))
+
+  fn init_inner_service(maindhtin : Self::InnerServiceProto, me : Self::PeerRef) -> Result<Self::InnerService> {
+    Ok(AnoService(me,DHTIn {
+      main_loop : maindhtin,
+    }))
   }
 
   fn init_peer_kvstore(&mut self) -> Result<Box<Fn() -> Result<Self::PeerKVStore> + Send>> {
-    let others = self.others.clone();
+    let others = self.conf.others.clone();
     Ok(Box::new(
       move ||{
         let others = others.clone();
@@ -321,18 +362,19 @@ where <P as KeyVal>::Key : Hash,
   }
 
   fn init_transport(&mut self) -> Result<Self::Transport> {
-    Ok(replace(&mut self.transport,None).unwrap())
+    Ok(replace(&mut self.conf.transport,None).unwrap())
   }
 
   fn init_peermgmt_proto(&mut self) -> Result<Self::PeerMgmtMeths> {
-    Ok(AnoPeerMgmt(self.peer_mgmt.clone()))
+    Ok(AnoPeerMgmt(self.conf.peer_mgmt.clone()))
   }
 
   fn init_dhtrules_proto(&mut self) -> Result<Self::DHTRules> {
-    Ok(self.rules.clone())
+    Ok(self.conf.rules.clone())
   }
+
   fn init_enc_proto(&mut self) -> Result<Self::MsgEnc> {
-    Ok(self.msg_enc.get_new())
+    Ok(self.conf.msg_enc.get_new())
   }
 
   fn init_route(&mut self) -> Result<Self::Route> {
@@ -390,14 +432,10 @@ impl<C : OpenSSLSymConf> SymProvider<OSSLSymW<C>,OSSLSymR<C>> for OpenSSLSymProv
     )
   }
   fn new_sym_reader (&mut self, key : Vec<u8>) -> OSSLSymR<C> {
-
     let sym = <OSSLSym<C>>::new(key,false).unwrap();
     OSSLSymR::from_read_sym(sym)
-    
   }
 }
-
-
 
 #[derive(Clone)]
 pub struct AnoSizedWindows;
@@ -455,7 +493,7 @@ impl<MC : MyDHTConf> Route<MC> for RandomRoute
 #[derive(Clone,Serialize,Deserialize,Debug)]
 #[serde(bound(deserialize = ""))]
 pub enum StoreAnoMsg {
-  STORE_ENVELOPE(ArcRef<Envelope>),
+  STORE_ENVELOPE(Envelope),
 }
 
 impl SettableAttachments for StoreAnoMsg {
@@ -468,10 +506,9 @@ impl GettableAttachments for StoreAnoMsg {
   fn get_nb_attachments(&self) -> usize { 0 }
 }
 
+/// TODO when use case finalize : consider replacing dhtin with kvstore spawsend + handle
+pub struct AnoService<MC : MyDHTTunnelConf, SI : MyDHTConf>(<MC as MyDHTTunnelConf>::PeerRef, DHTIn<SI>);
 
-
-/// TODO proxy to maindht store : need channel to store localy
-pub struct AnoService<MC : MyDHTTunnelConf>(<MC as MyDHTTunnelConf>::PeerRef);
 #[derive(Clone)]
 pub struct AnoServiceICommand(pub StoreAnoMsg);
 
@@ -511,28 +548,40 @@ impl<P> PeerStatusListener<P> for AnoServiceICommand {
     unreachable!()
   }
 }
-impl<P : Peer + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>> Service for AnoService<AnoTunDHTConf<P,PM>>
+impl<
+  P : Peer + AnoAddress<Address = SerSocketAddr>,
+  PM : PeerMgmtMeths<P>, 
+  MP : Peer<Address = SerSocketAddr>,
+  SPM : PeerMgmtMeths<MP>,
+  > Service for AnoService<AnoTunDHTConf2<P,PM,MP,SPM>,MainDHTConf<MP,SPM>>
 where <P as KeyVal>::Key : Hash,
+      <MP as KeyVal>::Key : Hash,
       <P as AnoAddress>::Address : Hash,
 {
-//impl<C : MyDHTTunnelConf<InnerCommand = AnoServiceICommand>> Service for AnoService<C> {
-  type CommandIn = GlobalCommand<<AnoTunDHTConf<P,PM> as MyDHTTunnelConf>::PeerRef,<AnoTunDHTConf<P,PM> as MyDHTTunnelConf>::InnerCommand>;
+  type CommandIn = GlobalCommand<<AnoTunDHTConf2<P,PM,MP,SPM> as MyDHTTunnelConf>::PeerRef,<AnoTunDHTConf2<P,PM,MP,SPM> as MyDHTTunnelConf>::InnerCommand>;
   //type CommandOut = GlobalTunnelReply<C>;
-  type CommandOut = GlobalTunnelReply<AnoTunDHTConf<P,PM>>;
+  type CommandOut = GlobalTunnelReply<AnoTunDHTConf2<P,PM,MP,SPM>>;
+ 
+//impl<C : MyDHTTunnelConf<InnerCommand = AnoServiceICommand>> Service for AnoService<C> {
+  //type CommandOut = GlobalTunnelReply<C>;
   fn call<S : SpawnerYield>(&mut self, req: Self::CommandIn, _async_yield : &mut S) -> Result<Self::CommandOut> {
     match req {
 
-      GlobalCommand::Distant(opr,gsc) => {
-    //Distant(Option<PR>, GSC),
-        unimplemented!()
+      GlobalCommand::Distant(_opr,AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))) => {
+
+        let enveloperef = ArcRef::new(MainStoreKV::Envelope(envelope));
+        let c_store_env = ApiCommand::call_service(KVStoreCommand::StoreLocally(enveloperef,1,None));
+        self.1.send(c_store_env)?;
+        Ok(GlobalTunnelReply::NoRep)
       },
-      GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(enveloperef))) => {
+      GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))) => {
         // proxy message
-        Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(enveloperef))))
+        Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))))
       },
     }
   }
 }
+
 #[derive(Clone)]
 pub struct AnoPeerMgmt<PM>(PM);
 impl<P : Peer + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>>

@@ -107,6 +107,7 @@ use votingmachine::anodht::{
   AnoPeer,
   StoreAnoMsg,
   AnoServiceICommand,
+  AnoTunDHTConf,
 };
 use mydht::utils::{
   Ref,
@@ -140,7 +141,7 @@ type RSAPeerMgmt = RSAPeerMgmtC<RSA2048SHA512AES256>;
 pub struct StriplePeerMgmt(RSAPeerMgmt);
 
 type MainDHTConf = MainDHTConfC<RSAPeer,StriplePeerMgmt>;
-type AnoDHTConf = AnoDHTConfC<RSAPeer,StriplePeerMgmt>;
+type AnoDHTConf = AnoDHTConfC<RSAPeer,StriplePeerMgmt,MainDHTConf>;
 
 impl PeerMgmtMeths<RSAPeer> for StriplePeerMgmt {
   fn challenge (&self, p: &RSAPeer) -> Vec<u8> {
@@ -264,7 +265,6 @@ fn main() {
   // getting bootstrap peers
   let boot_peers = match File::open(&boot_path) {
     Ok(mut f) => {
-      let mut jcont = String::new();
       let peers : Vec<ArcRef<RSAPeer>> = json::from_reader(&mut f).unwrap_or_else(|e|panic!("Invalid config {:?}\n quiting",e));
       if peers.len() > 0 {
         Some(peers)
@@ -308,19 +308,27 @@ fn main() {
     peer_mgmt : StriplePeerMgmt(RSAPeerMgmt::new()),
     rules : SimpleRules::new(DHTRULES_MAIN),
   };
-  let conf2 = MainDHTConfC {
-    me : fsconf.me.clone(),
-    others : boot_peers,
-    msg_enc : Bincode,
-    transport : Some(ano_tcp_transport),
 
-    peer_mgmt : StriplePeerMgmt(RSAPeerMgmt::new()),
-    rules : SimpleRules::new(DHTRULES_MAIN),
+  let (mut sendcommand,_recv) = conf.start_loop().unwrap();
+
+  let conf2 = AnoTunDHTConf {
+    conf : MainDHTConfC {
+      me : fsconf.me.clone(),
+      others : boot_peers,
+      msg_enc : Bincode,
+      transport : Some(ano_tcp_transport),
+
+      peer_mgmt : StriplePeerMgmt(RSAPeerMgmt::new()),
+      rules : SimpleRules::new(DHTRULES_MAIN),
+    },
+    main_api : Some(DHTIn {
+      main_loop : sendcommand.main_loop.clone(),
+    }),
   };
+
 
   let anoconf = new_ano_conf(conf2).unwrap();
 
-  let (mut sendcommand,_recv) = conf.start_loop().unwrap();
   let (mut anosendcommand,_recv) = anoconf.start_loop().unwrap();
 
 
@@ -331,7 +339,7 @@ fn main() {
   loop {
     println!("vote_file, vote_key, quit?");
     let mut line = String::new();
-    stdin.read_line(&mut line);
+    stdin.read_line(&mut line).unwrap();
     match line.as_str() {
       "quit\n" => {
           break
@@ -436,7 +444,7 @@ fn do_vote(main_in : &mut DHTIn<MainDHTConf>, ano_in : &mut DHTIn<AnoDHTConf>, v
   };*/
 
   // keep localy envelope with pk (pk not serialized through serde so vec null is send).
-  let enveloperef = ArcRef::new(Envelope::new(votedesc)?);
+  let envelope = Envelope::new(votedesc)?;
 
   //assert!(true == false);
 //  assert!(envelope.check(votedesc).unwrap()==true); useless check except for debuging purpose)
@@ -447,7 +455,7 @@ fn do_vote(main_in : &mut DHTIn<MainDHTConf>, ano_in : &mut DHTIn<AnoDHTConf>, v
   // share enveloppe anonymously (store + query all)
   //TODO add apiid to kvstore or create push for kvstore (similar to store locally
   //TODO run with reply ??
-  let c_store_env = GlobalTunnelCommand::Inner(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(enveloperef.clone())));
+  let c_store_env = GlobalTunnelCommand::Inner(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope.clone())));
   let command = ApiCommand::call_service(c_store_env);
   ano_in.send(command)?;
 

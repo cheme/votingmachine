@@ -51,10 +51,15 @@ pub struct VotingService<P : Peer,RP> {
 use std::borrow::Borrow;
 
 impl<P : Peer,RP : Ref<P> + Clone> VotingService<P,RP> {
+  /// filter for validation
   fn vote_impl(&mut self, kv: &MainStoreKVRef) -> Result<Option<<Self as Service>::CommandOut>> {
     match *kv.borrow() {
       MainStoreKV::VoteDesc(ref vd) => {
         // TODO let global service listen peer update and query check this vd
+      },
+      MainStoreKV::Envelope(ref envelope) => {
+        // TODO manage envelope list and probably store it
+        println!("--------------------> Env store reach");
       },
     }
     Ok(None)

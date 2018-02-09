@@ -48,6 +48,7 @@ pub mod striples;
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
 pub enum MainStoreKV {
   VoteDesc(VoteDesc),
+  Envelope(Envelope),
 }
 pub type MainStoreKVRef = ArcRef<MainStoreKV>;
 
@@ -89,7 +90,8 @@ impl Ref<MainStoreKV> for MainStoreKVRef {
 impl SettableAttachment for MainStoreKV {
   fn set_attachment(&mut self, att : &Attachment) -> bool {
     match *self {
-      MainStoreKV::VoteDesc(ref mut rvotedesc) => rvotedesc.set_attachment(att),
+      MainStoreKV::VoteDesc(ref mut inner) => inner.set_attachment(att),
+      MainStoreKV::Envelope(ref mut inner) => inner.set_attachment(att),
     }
   }
 }
@@ -98,22 +100,26 @@ impl KeyVal for MainStoreKV {
   type Key = Vec<u8>;
   fn attachment_expected_size(&self) -> usize {
     match *self {
-      MainStoreKV::VoteDesc(ref rvotedesc) => rvotedesc.attachment_expected_size(),
+      MainStoreKV::VoteDesc(ref inner) => inner.attachment_expected_size(),
+      MainStoreKV::Envelope(ref inner) => inner.attachment_expected_size(),
     }
   }
   fn get_key_ref(&self) -> &Self::Key {
     match *self {
-      MainStoreKV::VoteDesc(ref rvotedesc) => rvotedesc.get_key_ref(),
+      MainStoreKV::VoteDesc(ref inner) => inner.get_key_ref(),
+      MainStoreKV::Envelope(ref inner) => inner.get_key_ref(),
     }
   }
   fn get_key(&self) -> Self::Key {
     match *self {
-      MainStoreKV::VoteDesc(ref rvotedesc) => rvotedesc.get_key(),
+      MainStoreKV::VoteDesc(ref inner) => inner.get_key(),
+      MainStoreKV::Envelope(ref inner) => inner.get_key(),
     }
   }
   fn get_attachment(&self) -> Option<&Attachment> {
     match *self {
-      MainStoreKV::VoteDesc(ref rvotedesc) => rvotedesc.get_attachment(),
+      MainStoreKV::VoteDesc(ref inner) => inner.get_attachment(),
+      MainStoreKV::Envelope(ref inner) => inner.get_attachment(),
     }
   }
   fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
@@ -126,14 +132,12 @@ impl KeyVal for MainStoreKV {
 
 impl MainStoreKV {
   pub fn get_votedesc(&self) -> Option<&VoteDesc> {
-/*    if let MainStoreKV::VoteDesc(ref inner) = *self {
+    if let MainStoreKV::VoteDesc(ref inner) = *self {
       Some(inner)
     } else {
       None
-    }*/
-    let MainStoreKV::VoteDesc(ref inner) = *self;Some(inner)
+    }
   }
-
 }
 //----------------------------AnoStoreKV---------------------
 impl SettableAttachment for AnoStoreKV {
