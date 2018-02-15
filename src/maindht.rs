@@ -2,6 +2,17 @@
 use mydht_tcp_loop::{
   Tcp,
 };
+use anodht::{
+  AnoDHTConf,
+};
+use mydht_tunnel::{
+  MyDHTTunnelConfType,
+};
+ 
+use mydht::api::{
+  DHTIn,
+};
+
 use service::VotingService; 
 use serde::{Serializer,Deserializer};
 use std::borrow::Borrow;
@@ -79,6 +90,7 @@ use vote::{
   MainStoreKV,
   MainStoreKVRef,
 };
+
 
 pub type MainStoreKVStore = SimpleCache<MainStoreKV,HashMap<<MainStoreKV as KeyVal>::Key,MainStoreKV>>;
 pub type MainStoreQueryCache<P,PR> = SimpleCacheQuery<P,MainStoreKVRef,PR,HashMapQuery<P,MainStoreKVRef,PR>>;
@@ -160,7 +172,9 @@ where <P as KeyVal>::Key : Hash,
 
   type GlobalServiceCommand = KVStoreCommand<Self::Peer,Self::PeerRef,MainStoreKV,MainStoreKVRef>;
   type GlobalServiceReply = KVStoreReply<MainStoreKVRef>;
-  type GlobalService = VotingService<Self::Peer,Self::PeerRef>;
+  type GlobalService = VotingService<Self::Peer,Self::PeerRef,
+//    DHTIn<MyDHTTunnelConfType<AnoDHTConf<P,PM,MainDHTConf<P,PM>>>>
+  >;
   type GlobalServiceSpawn = ThreadPark;
   type GlobalServiceChannelIn = MpscChannel;
 

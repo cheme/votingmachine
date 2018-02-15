@@ -173,15 +173,12 @@ pub trait AnoAddress {
 
 pub type AnoDHTConf<P,SP,SI> = MyDHTTunnelConfType<AnoTunDHTConf<P,SP,SI>>;
 
-pub type AnoTunDHTConf2<P,PM,MP,SPM> = AnoTunDHTConf<P,PM,MainDHTConf<MP,SPM>>;
+pub type AnoTunDHTConf2<P,PM> = AnoTunDHTConf<P,PM,MainDHTConf<P,PM>>;
 
-pub fn new_ano_conf<P : Peer + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>, 
-  MP : Peer<Address = SerSocketAddr>,
-  SPM : PeerMgmtMeths<MP>,
-  >(tc : AnoTunDHTConf2<P,PM,MP,SPM>)
- -> Result<AnoDHTConf<P,PM,MainDHTConf<MP,SPM>>> 
+pub fn new_ano_conf<P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>, 
+  >(tc : AnoTunDHTConf2<P,PM>)
+ -> Result<AnoDHTConf<P,PM,MainDHTConf<P,PM>>> 
 where <P as KeyVal>::Key : Hash,
-      <MP as KeyVal>::Key : Hash,
       //MainLoopSendIn<SI> : Send,
       //MLSend<SI> : Send,
 {
@@ -278,14 +275,11 @@ pub struct AnoTunDHTConf<P,PM,SI : MyDHTConf> {
 }*/
 
 impl<
-  P : Peer + AnoAddress<Address = SerSocketAddr>, 
+  P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
   PM : PeerMgmtMeths<P>, 
-  MP : Peer<Address = SerSocketAddr>,
-  SPM : PeerMgmtMeths<MP>,
 //  SI : MyDHTConf
-  > MyDHTTunnelConf for AnoTunDHTConf2<P,PM,MP,SPM> 
+  > MyDHTTunnelConf for AnoTunDHTConf2<P,PM> 
 where <P as KeyVal>::Key : Hash,
-      <MP as KeyVal>::Key : Hash,
       <P as AnoAddress>::Address : Hash,
 //      MLSend<SI> : Send,
 {
@@ -296,8 +290,8 @@ where <P as KeyVal>::Key : Hash,
   type PeerRef = CloneRef<AnoPeer<P>>;
   type InnerCommand = AnoServiceICommand;
   type InnerReply = AnoServiceIReply;
-  type InnerService = AnoService<Self,MainDHTConf<MP,SPM>>;
-  type InnerServiceProto = MioSend<MLSend<MainDHTConf<MP,SPM>>>;
+  type InnerService = AnoService<Self,MainDHTConf<P,PM>>;
+  type InnerServiceProto = MioSend<MLSend<MainDHTConf<P,PM>>>;
   type Transport = Tcp;
   type TransportAddress = SerSocketAddr;
   type MsgEnc = Bincode;
@@ -549,18 +543,15 @@ impl<P> PeerStatusListener<P> for AnoServiceICommand {
   }
 }
 impl<
-  P : Peer + AnoAddress<Address = SerSocketAddr>,
+  P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>,
   PM : PeerMgmtMeths<P>, 
-  MP : Peer<Address = SerSocketAddr>,
-  SPM : PeerMgmtMeths<MP>,
-  > Service for AnoService<AnoTunDHTConf2<P,PM,MP,SPM>,MainDHTConf<MP,SPM>>
+  > Service for AnoService<AnoTunDHTConf2<P,PM>,MainDHTConf<P,PM>>
 where <P as KeyVal>::Key : Hash,
-      <MP as KeyVal>::Key : Hash,
       <P as AnoAddress>::Address : Hash,
 {
-  type CommandIn = GlobalCommand<<AnoTunDHTConf2<P,PM,MP,SPM> as MyDHTTunnelConf>::PeerRef,<AnoTunDHTConf2<P,PM,MP,SPM> as MyDHTTunnelConf>::InnerCommand>;
+  type CommandIn = GlobalCommand<<AnoTunDHTConf2<P,PM> as MyDHTTunnelConf>::PeerRef,<AnoTunDHTConf2<P,PM> as MyDHTTunnelConf>::InnerCommand>;
   //type CommandOut = GlobalTunnelReply<C>;
-  type CommandOut = GlobalTunnelReply<AnoTunDHTConf2<P,PM,MP,SPM>>;
+  type CommandOut = GlobalTunnelReply<AnoTunDHTConf2<P,PM>>;
  
 //impl<C : MyDHTTunnelConf<InnerCommand = AnoServiceICommand>> Service for AnoService<C> {
   //type CommandOut = GlobalTunnelReply<C>;
