@@ -1,10 +1,11 @@
 //! Main MyDHT instance to share content while authenticated
-use mydht_tcp_loop::{
-  Tcp,
+use anodht::{
+  AnoAddress,
 };
 use anodht::{
-  AnoDHTConf,
+  AnoTunDHTConf2,
 };
+
 use mydht_tunnel::{
   MyDHTTunnelConfType,
 };
@@ -12,7 +13,9 @@ use mydht_tunnel::{
 use mydht::api::{
   DHTIn,
 };
-
+use mydht_tcp_loop::{
+  Tcp,
+};
 use service::VotingService; 
 use serde::{Serializer,Deserializer};
 use std::borrow::Borrow;
@@ -95,7 +98,13 @@ use vote::{
 pub type MainStoreKVStore = SimpleCache<MainStoreKV,HashMap<<MainStoreKV as KeyVal>::Key,MainStoreKV>>;
 pub type MainStoreQueryCache<P,PR> = SimpleCacheQuery<P,MainStoreKVRef,PR,HashMapQuery<P,MainStoreKVRef,PR>>;
 
-pub struct MainDHTConf<P,PM> {
+pub struct MainDHTConf<
+  P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
+  PM : PeerMgmtMeths<P>,
+  > 
+where <P as KeyVal>::Key : Hash,
+      <P as AnoAddress>::Address : Hash,
+{
   pub me : ArcRef<P>,
   pub others : Option<Vec<ArcRef<P>>>,
   // transport in conf is bad, but flexible (otherwhise we could not be generic as we would need
@@ -105,6 +114,9 @@ pub struct MainDHTConf<P,PM> {
   pub msg_enc : Bincode,
   pub peer_mgmt : PM,
   pub rules : SimpleRules,
+  pub ano_dhtin : Option<
+    DHTIn<MyDHTTunnelConfType<AnoTunDHTConf2<P,PM>>>
+    >,
 }
 
 // TODO configure and refactor it
@@ -133,7 +145,7 @@ pub const DHTRULES_MAIN : DhtRules = DhtRules {
 
 
 
-impl<P : Peer<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>> MyDHTConf for MainDHTConf<P,PM> 
+impl<P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>> MyDHTConf for MainDHTConf<P,PM> 
 where <P as KeyVal>::Key : Hash,
       <P as Peer>::Address : Hash,
 {
@@ -172,9 +184,7 @@ where <P as KeyVal>::Key : Hash,
 
   type GlobalServiceCommand = KVStoreCommand<Self::Peer,Self::PeerRef,MainStoreKV,MainStoreKVRef>;
   type GlobalServiceReply = KVStoreReply<MainStoreKVRef>;
-  type GlobalService = VotingService<Self::Peer,Self::PeerRef,
-//    DHTIn<MyDHTTunnelConfType<AnoDHTConf<P,PM,MainDHTConf<P,PM>>>>
-  >;
+  type GlobalService = VotingService<Self::Peer,Self::PeerRef,PM>;
   type GlobalServiceSpawn = ThreadPark;
   type GlobalServiceChannelIn = MpscChannel;
 
@@ -322,6 +332,7 @@ where <P as KeyVal>::Key : Hash,
         Ok(SimpleCacheQuery::new(false))
       }
     );
+    let ano_dhtin = replace(&mut self.ano_dhtin,None).unwrap();
     Ok(VotingService {
       store_service : KVStoreService {
         me : self.init_ref_peer()?,
@@ -332,7 +343,8 @@ where <P as KeyVal>::Key : Hash,
         query_cache : None,
         discover : true,
         _ph : PhantomData,
-      }
+      },
+      ano_dhtin,
     })
   }
 

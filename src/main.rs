@@ -35,6 +35,12 @@ use mydht::{
   QueryMode,
   MCReply,
 };
+use mydht::service::{
+  MpscChannel,
+  MioChannel,
+  SpawnChannel,
+};
+ 
 use mydht_tunnel::{
   MyDHTTunnelConf,
   MyDHTTunnelConfType,
@@ -299,6 +305,13 @@ fn main() {
     ).unwrap()
   };
 
+  // warning MpscChannel is same as init_main_loop_channel_in result
+  let (ano_s,ano_r) = MioChannel(MpscChannel).new().unwrap();
+
+  let mut anosendcommand = DHTIn {
+    main_loop : ano_s.clone()
+  };
+
   let conf = MainDHTConfC {
     me : fsconf.me.clone(),
     others : boot_peers.clone(),
@@ -307,6 +320,9 @@ fn main() {
 
     peer_mgmt : StriplePeerMgmt(RSAPeerMgmt::new()),
     rules : SimpleRules::new(DHTRULES_MAIN),
+    ano_dhtin : Some(DHTIn {
+      main_loop : ano_s.clone()
+    }),
   };
 
   let (mut sendcommand,_recv) = conf.start_loop().unwrap();
@@ -320,6 +336,7 @@ fn main() {
 
       peer_mgmt : StriplePeerMgmt(RSAPeerMgmt::new()),
       rules : SimpleRules::new(DHTRULES_MAIN),
+      ano_dhtin : None,
     },
     main_api : Some(DHTIn {
       main_loop : sendcommand.main_loop.clone(),
@@ -329,8 +346,7 @@ fn main() {
 
   let anoconf = new_ano_conf(conf2).unwrap();
 
-  let (mut anosendcommand,_recv) = anoconf.start_loop().unwrap();
-
+  let _recv = anoconf.start_loop_with_channel(ano_s, ano_r).unwrap();
 
   // Interactive mode TODO expand command syntax to not run interactive mode (only if -I), with
   // more common scenarii
@@ -428,56 +444,10 @@ fn do_vote(main_in : &mut DHTIn<MainDHTConf>, ano_in : &mut DHTIn<AnoDHTConf>, v
 
   println!("check vote ok");
   let voteref = ArcRef::new(MainStoreKV::VoteDesc(vote));
-  // store vote (to make it accessible from other peers)
+  // store vote (to make it accessible from other peers) : also trigger the vote process in global
+  // service (TODO switch global service to kvstore overload to simple service)
   let c_store_vote = ApiCommand::call_service(KVStoreCommand::StoreLocally(voteref.clone(),1,None));
   main_in.send(c_store_vote)?;
-
-  let votedesc : &MainStoreKV = voteref.borrow();
-  let votedesc = votedesc.get_votedesc().unwrap();
-  // make our enveloppe (public sign by votedesc striple)
-  /* explicitely safe version
-  let (envelope, envpk) = {
-    let mut envelope = Envelope::new(votedesc)?;
-    let envpk = envelope.privatekey();
-    envelope.privatekey = Vec::new();
-    (envelope, envpk)
-  };*/
-
-  // keep localy envelope with pk (pk not serialized through serde so vec null is send).
-  let envelope = Envelope::new(votedesc)?;
-
-  //assert!(true == false);
-//  assert!(envelope.check(votedesc).unwrap()==true); useless check except for debuging purpose)
-  println!("initialized envolope");
-
-  // store enveloppe with pk : not in POC (use this object for next steps no persistence)
- 
-  // share enveloppe anonymously (store + query all)
-  //TODO add apiid to kvstore or create push for kvstore (similar to store locally
-  //TODO run with reply ??
-  let c_store_env = GlobalTunnelCommand::Inner(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope.clone())));
-  let command = ApiCommand::call_service(c_store_env);
-  ano_in.send(command)?;
-
-  // query all enveloppe of anonymous dht
-
-  // create participation (sign by our peer striple)
-
-  // share participation (store + query all)
- 
-  // todo (not in poc) public synchro of everyone validating participation (in POC panic peer if
-  // invalid)
- 
-  // make vote (sign by enveloppe, about votedesc)
-  
-  // share votes (store + query all) in anonymous dht
-
-  // make result (valid my vote and nb vote) : sign by user
-  
-  // share results (store + query all)
-
-  // print global vote result
-
   Ok(())
 }
 

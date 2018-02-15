@@ -175,7 +175,7 @@ pub type AnoDHTConf<P,SP,SI> = MyDHTTunnelConfType<AnoTunDHTConf<P,SP,SI>>;
 
 pub type AnoTunDHTConf2<P,PM> = AnoTunDHTConf<P,PM,MainDHTConf<P,PM>>;
 
-pub fn new_ano_conf<P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>, 
+pub fn new_ano_conf<P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>
   >(tc : AnoTunDHTConf2<P,PM>)
  -> Result<AnoDHTConf<P,PM,MainDHTConf<P,PM>>> 
 where <P as KeyVal>::Key : Hash,
@@ -253,7 +253,13 @@ impl<P : Peer + AnoAddress<Address = SerSocketAddr>> Peer for AnoPeer<P> {
 
 }
 
-pub struct AnoTunDHTConf<P,PM,SI : MyDHTConf> {
+pub struct AnoTunDHTConf<
+  P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
+  PM : PeerMgmtMeths<P>,
+  SI : MyDHTConf> 
+where <P as KeyVal>::Key : Hash,
+      <P as AnoAddress>::Address : Hash,
+{
   pub conf : MainDHTConf<P,PM>,
   // sibling dht api input : only a send as we address directly the mio service (otherwhise a
   // handle would be needed (added optional for possible smarter addressing through weak handle)!!!
@@ -276,7 +282,7 @@ pub struct AnoTunDHTConf<P,PM,SI : MyDHTConf> {
 
 impl<
   P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
-  PM : PeerMgmtMeths<P>, 
+  PM : PeerMgmtMeths<P>,
 //  SI : MyDHTConf
   > MyDHTTunnelConf for AnoTunDHTConf2<P,PM> 
 where <P as KeyVal>::Key : Hash,
@@ -544,7 +550,7 @@ impl<P> PeerStatusListener<P> for AnoServiceICommand {
 }
 impl<
   P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>,
-  PM : PeerMgmtMeths<P>, 
+  PM : PeerMgmtMeths<P>,
   > Service for AnoService<AnoTunDHTConf2<P,PM>,MainDHTConf<P,PM>>
 where <P as KeyVal>::Key : Hash,
       <P as AnoAddress>::Address : Hash,
