@@ -175,12 +175,9 @@ pub type AnoDHTConf<P,SP,SI> = MyDHTTunnelConfType<AnoTunDHTConf<P,SP,SI>>;
 
 pub type AnoTunDHTConf2<P,PM> = AnoTunDHTConf<P,PM,MainDHTConf<P,PM>>;
 
-pub fn new_ano_conf<P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>
+pub fn new_ano_conf<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>
   >(tc : AnoTunDHTConf2<P,PM>)
  -> Result<AnoDHTConf<P,PM,MainDHTConf<P,PM>>> 
-where <P as KeyVal>::Key : Hash,
-      //MainLoopSendIn<SI> : Send,
-      //MLSend<SI> : Send,
 {
   MyDHTTunnelConfType::new(
     tc,
@@ -254,11 +251,9 @@ impl<P : Peer + AnoAddress<Address = SerSocketAddr>> Peer for AnoPeer<P> {
 }
 
 pub struct AnoTunDHTConf<
-  P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
+  P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
   PM : PeerMgmtMeths<P>,
   SI : MyDHTConf> 
-where <P as KeyVal>::Key : Hash,
-      <P as AnoAddress>::Address : Hash,
 {
   pub conf : MainDHTConf<P,PM>,
   // sibling dht api input : only a send as we address directly the mio service (otherwhise a
@@ -281,12 +276,10 @@ where <P as KeyVal>::Key : Hash,
 }*/
 
 impl<
-  P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
+  P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
   PM : PeerMgmtMeths<P>,
 //  SI : MyDHTConf
   > MyDHTTunnelConf for AnoTunDHTConf2<P,PM> 
-where <P as KeyVal>::Key : Hash,
-      <P as AnoAddress>::Address : Hash,
 //      MLSend<SI> : Send,
 {
   const INIT_ROUTE_LENGTH : usize = 4;
@@ -549,11 +542,9 @@ impl<P> PeerStatusListener<P> for AnoServiceICommand {
   }
 }
 impl<
-  P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>,
+  P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>,
   PM : PeerMgmtMeths<P>,
   > Service for AnoService<AnoTunDHTConf2<P,PM>,MainDHTConf<P,PM>>
-where <P as KeyVal>::Key : Hash,
-      <P as AnoAddress>::Address : Hash,
 {
   type CommandIn = GlobalCommand<<AnoTunDHTConf2<P,PM> as MyDHTTunnelConf>::PeerRef,<AnoTunDHTConf2<P,PM> as MyDHTTunnelConf>::InnerCommand>;
   //type CommandOut = GlobalTunnelReply<C>;

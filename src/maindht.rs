@@ -2,6 +2,7 @@
 use anodht::{
   AnoAddress,
 };
+use std::collections::BTreeMap;
 use anodht::{
   AnoTunDHTConf2,
 };
@@ -99,10 +100,10 @@ pub type MainStoreKVStore = SimpleCache<MainStoreKV,HashMap<<MainStoreKV as KeyV
 pub type MainStoreQueryCache<P,PR> = SimpleCacheQuery<P,MainStoreKVRef,PR,HashMapQuery<P,MainStoreKVRef,PR>>;
 
 pub struct MainDHTConf<
-  P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
+  P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
   PM : PeerMgmtMeths<P>,
   > 
-where <P as KeyVal>::Key : Hash,
+where <P as KeyVal>::Key : Hash + AsRef<[u8]>,
       <P as AnoAddress>::Address : Hash,
 {
   pub me : ArcRef<P>,
@@ -145,9 +146,7 @@ pub const DHTRULES_MAIN : DhtRules = DhtRules {
 
 
 
-impl<P : Peer<Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>> MyDHTConf for MainDHTConf<P,PM> 
-where <P as KeyVal>::Key : Hash,
-      <P as Peer>::Address : Hash,
+impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, PM : PeerMgmtMeths<P>> MyDHTConf for MainDHTConf<P,PM> 
 {
   const SEND_NB_ITER : usize = 10;
 
@@ -345,6 +344,7 @@ where <P as KeyVal>::Key : Hash,
         _ph : PhantomData,
       },
       ano_dhtin,
+      votes : BTreeMap::new(),
     })
   }
 

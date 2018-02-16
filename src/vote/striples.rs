@@ -1,5 +1,8 @@
 //! striple implementation of various vote objects
 use mydht::utils::TimeSpecExt;
+use mydht::dhtimpl::{
+  NoShadow,
+};
 use anodht::{
   AnoAddress,
 };
@@ -65,6 +68,8 @@ use mydht_openssl::rsa_openssl::{
   RSAPeer,
   RSA2048SHA512AES256,
   OpenSSLConf,
+  ASymSymMode,
+
 };
 
 use mydht::transportif::Address;
@@ -346,10 +351,12 @@ impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> AnoAddress for S
 
 impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> Peer for StriplePeer<A,B,C,S> {
   type Address = <RSAPeer<A,B,C> as Peer>::Address;
-  type ShadowWAuth = <RSAPeer<A,B,C> as Peer>::ShadowWAuth;
-  type ShadowRAuth = <RSAPeer<A,B,C> as Peer>::ShadowRAuth;
+  /// Public auth could not use default asymetric shadower of RSAPeer (need Private Auth)
+  type ShadowWAuth = NoShadow;
+  type ShadowRAuth = NoShadow;
   type ShadowWMsg = <RSAPeer<A,B,C> as Peer>::ShadowWMsg;
   type ShadowRMsg = <RSAPeer<A,B,C> as Peer>::ShadowRMsg;
+
   fn get_address (&self) -> &Self::Address {
     self.inner.get_address()
   }
@@ -357,13 +364,13 @@ impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> Peer for Striple
     self.inner.to_address()
   }
   fn get_shadower_r_auth (&self) -> Self::ShadowRAuth {
-    self.inner.get_shadower_r_auth()
+    NoShadow
   }
   fn get_shadower_r_msg (&self) -> Self::ShadowRMsg {
     self.inner.get_shadower_r_msg()
   }
   fn get_shadower_w_auth (&self) -> Self::ShadowWAuth {
-    self.inner.get_shadower_w_auth()
+    NoShadow
   }
   fn get_shadower_w_msg (&self) -> Self::ShadowWMsg {
     self.inner.get_shadower_w_msg()

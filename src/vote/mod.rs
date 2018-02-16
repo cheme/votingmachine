@@ -229,7 +229,7 @@ pub struct VoteDesc {
   /// invitations TODO evolve to Open (every body join and of course multiple times : it is just
   /// some open poll : can add ip filter...), Wot (in this case it is probable we got various vote
   /// versions).
-  invitations : Vec<Vec<u8>>, // key to peer TODO parameterized
+  pub invitations : Vec<Vec<u8>>, // key to peer TODO parameterized
   /// Deadline for participating, after this peers will not include participant in vote
   /// TODO link to coin chain to avoid fraud (must be optional).
   end_period_envelope : TimeSpecExt,
@@ -241,6 +241,13 @@ pub struct VoteDesc {
   /// obviously wrong, striple lib need some refacto to avoid such a buffer
   /// (or allow bcont as bytes producer (meaning Read) from self)
   content : Option<BCont<'static>>,
+}
+
+impl VoteDesc {
+  #[inline]
+  pub fn nb_invit(&self) -> usize {
+    self.invitations.len()
+  }
 }
 #[inline]
 fn init_content_votedesc<E>(mut vote : VoteDesc) -> Result<VoteDesc,E> {
@@ -283,7 +290,7 @@ pub struct Envelope {
   /// pk not sent obviously
   privatekey : Vec<u8>,
   /// vote id
-  votekey : Vec<u8>,
+  pub votekey : Vec<u8>,
   /// sign by VoteDesc privatekey
   sign : Vec<u8>,
 }
