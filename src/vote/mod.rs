@@ -4,13 +4,18 @@ use self::striples::StripleMydhtErr;
 use mydht::mydhtresult::Result as MResult;
 use bincode;
 use serde::{Serializer,Deserializer};
+use serde::de::Error as SerdeDeError;
 use std::borrow::Borrow;
-use striple::striple::BCont;
+use striple::striple::{
+  StripleIf,
+  StripleFieldsIf,
+  OwnedStripleIf,
+  BCont,
+};
 use mydht::transportif::Address;
 
 use striple::striple::{
   InstantiableStripleImpl,
-  StripleIf,
   StripleImpl,
   StripleKind,
   SignatureScheme,
@@ -49,8 +54,12 @@ pub mod striples;
 pub enum MainStoreKV {
   VoteDesc(VoteDesc),
   Envelope(Envelope),
+  Participation(Participation),
+  Vote(Vote),
 }
 pub type MainStoreKVRef = ArcRef<MainStoreKV>;
+
+
 
 /// type for any storable element (AnoDHT)
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
@@ -58,12 +67,17 @@ pub enum AnoStoreKV {
   Envelope(Envelope),
 }
 pub type AnoStoreKVRef = ArcRef<AnoStoreKV>;
-
-/*#[derive(Debug,Clone,Serialize,Deserialize)]
+/*
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
 pub enum MainStoreKVRef {
   VoteDesc(ArcRef<VoteDesc>),
-}*/
-/*
+  Envelope(ArcRef<Envelope>),
+}
+pub enum MainStoreKVRef2<'a> {
+  VoteDesc(&'a VoteDesc),
+  Envelope(&'a Envelope),
+}
+
 impl SRef for MainStoreKVRef {
   type Send = Self;
   fn get_sendable(self) -> Self::Send { self }
@@ -71,27 +85,31 @@ impl SRef for MainStoreKVRef {
 impl SToRef<MainStoreKVRef> for MainStoreKVRef {
   fn to_ref(self) -> MainStoreKVRef { self }
 }
-impl Borrow<MainStoreKV> for MainStoreKVRef {
-  fn borrow(&self) -> &MainStoreKV {
+impl Ref<MainStoreKV> for MainStoreKVRef {
+  type Ref = MainstoreKVRef2<'a>;
+  fn get_ref(&'a self) -> &MainStoreKVRef2<'a> {
     match *self {
-      MainStoreKV::VoteDesc(rvotedesc) => rvotedesc.borrow(),
+      MainStoreKVRef::VoteDesc(inner) => MainStoreKVRef2::VoteDesc(inner.borrow()),
+      MainStoreKVRef::Envelope(inner) => MainStoreKVRef2::Envelope(inner.borrow()),
+    }
+  }
+
+  fn new(t : MainStoreKV) -> Self {
+    match t {
+      MainStoreKV::VoteDesc(inner) => MainStoreKVRef::VoteDesc(ArcRef::new(inner)),
+      MainStoreKV::Envelope(inner) => MainStoreKVRef::Envelope(ArcRef::new(inner)),
     }
   }
 }
-impl Ref<MainStoreKV> for MainStoreKVRef {
-  fn new(t : MainStoreKV) -> Self {
-    match t {
-      MainStoreKV::VoteDesc(vd) => MainStoreKVRef::VoteDesc(ArcRef::new(vd)),
-    }
-  }
-}*/
-
+*/
 //--------------------MainStoreKV---------------------------
 impl SettableAttachment for MainStoreKV {
   fn set_attachment(&mut self, att : &Attachment) -> bool {
     match *self {
       MainStoreKV::VoteDesc(ref mut inner) => inner.set_attachment(att),
       MainStoreKV::Envelope(ref mut inner) => inner.set_attachment(att),
+      MainStoreKV::Participation(ref mut inner) => inner.set_attachment(att),
+      MainStoreKV::Vote(ref mut inner) => inner.set_attachment(att),
     }
   }
 }
@@ -102,24 +120,32 @@ impl KeyVal for MainStoreKV {
     match *self {
       MainStoreKV::VoteDesc(ref inner) => inner.attachment_expected_size(),
       MainStoreKV::Envelope(ref inner) => inner.attachment_expected_size(),
+      MainStoreKV::Participation(ref inner) => inner.attachment_expected_size(),
+      MainStoreKV::Vote(ref inner) => inner.attachment_expected_size(),
     }
   }
   fn get_key_ref(&self) -> &Self::Key {
     match *self {
       MainStoreKV::VoteDesc(ref inner) => inner.get_key_ref(),
       MainStoreKV::Envelope(ref inner) => inner.get_key_ref(),
+      MainStoreKV::Participation(ref inner) => inner.get_key_ref(),
+      MainStoreKV::Vote(ref inner) => inner.get_key_ref(),
     }
   }
   fn get_key(&self) -> Self::Key {
     match *self {
-      MainStoreKV::VoteDesc(ref inner) => inner.get_key(),
-      MainStoreKV::Envelope(ref inner) => inner.get_key(),
+      MainStoreKV::VoteDesc(ref inner) => KeyVal::get_key(inner),
+      MainStoreKV::Envelope(ref inner) => KeyVal::get_key(inner),
+      MainStoreKV::Participation(ref inner) => KeyVal::get_key(inner),
+      MainStoreKV::Vote(ref inner) => KeyVal::get_key(inner),
     }
   }
   fn get_attachment(&self) -> Option<&Attachment> {
     match *self {
       MainStoreKV::VoteDesc(ref inner) => inner.get_attachment(),
       MainStoreKV::Envelope(ref inner) => inner.get_attachment(),
+      MainStoreKV::Participation(ref inner) => inner.get_attachment(),
+      MainStoreKV::Vote(ref inner) => inner.get_attachment(),
     }
   }
   fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
@@ -162,7 +188,7 @@ impl KeyVal for AnoStoreKV {
   }
   fn get_key(&self) -> Self::Key {
     match *self {
-      AnoStoreKV::Envelope(ref inner) => inner.get_key(),
+      AnoStoreKV::Envelope(ref inner) => KeyVal::get_key(inner),
     }
   }
   fn get_attachment(&self) -> Option<&Attachment> {
@@ -286,9 +312,6 @@ pub struct Envelope {
   /// envelope id aka derived public key
   id : Vec<u8>,
   publickey : Vec<u8>,
-  #[serde(skip_serializing,skip_deserializing)]
-  /// pk not sent obviously
-  privatekey : Vec<u8>,
   /// vote id
   pub votekey : Vec<u8>,
   /// sign by VoteDesc privatekey
@@ -330,53 +353,206 @@ impl KeyVal for Envelope {
 impl Envelope {
   pub fn new (
     vote_desc : &VoteDesc,
-    ) -> MResult<Self> {
+    ) -> MResult<(Self,Vec<u8>)> {
 
     let (vkey,pkey) = <<<Envelope as StripleImpl>::Kind as StripleKind>::S as SignatureScheme>::new_keypair().map_err(|e|StripleMydhtErr(e))?;
 
     let mut envelope = Envelope {
       id: Vec::new(),
       publickey: vkey, 
-      privatekey: pkey,
-      votekey: Vec::new(),
+      votekey: Vec::new(), // init in calc_init
       sign: Vec::new(),
     };
 
     envelope.calc_init(vote_desc).map_err(|e|StripleMydhtErr(e))?;
-    Ok(envelope)
+    Ok((envelope,pkey))
   }
  
 }
-//----------------------.....
+//---------------------- Participation
+#[derive(Debug,Serialize,Deserialize,Clone)]
+#[serde(finish_deserialize = "init_content_participation")]
 pub struct Participation {
   /// participation id
   id : Vec<u8>,
+  /// pub key : striple technical
+  pkey : Vec<u8>,
   /// user id
-  user : Vec<u8>,
+  pub user : Vec<u8>,
   /// vote id
-  votekey : String,
+  pub votekey : Vec<u8>,
   /// vote key andenvelopes acknowledges (we include it as we may allow a bias in number of envelopes signed
   /// (convergence of every enveloppe is not easy)) - simplification to number of envelope plus
   /// votekey may be used (more realist for big).
+  /// TODO a merkle tree hash for scaling
   envelopes : Vec<Vec<u8>>,
+  /// tells if all is fine until now
+  pub is_valid : bool,
+  #[serde(skip_serializing,skip_deserializing)]
+  /// obviously wrong, striple lib need some refacto to avoid such a buffer
+  /// (or allow bcont as bytes producer (meaning Read) from self)
+  content : Option<BCont<'static>>,
   /// sign of envelopes by User privatekey
   sign : Vec<u8>,
 }
+fn init_content_participation<E : SerdeDeError>(mut p : Participation) -> Result<Participation,E> {
 
-// key envelope id (when receiving reply envelope is no longer needed).
-pub struct Reply {
-  /// envelope id as key
-  envelopeid : Vec<u8>,
-  /// vote id (not that usefull (already in envelope))
-  voteid : Vec<u8>,
-  /// actual reply to vote
-  reply : String,
-  /// sign of reply with envelope key
-  sign : Vec<u8>,
+  // should use bincode encoding (depends of from definition)
+  let v : u8 = if p.is_valid { 1 } else { 0 };
+  p.content = Some(BCont::OwnedBytes(vec![v]));
+  Ok(p)
+  // no check : would require a reference to user TODO consider doing it : would require a
+  // parameter for deserializing (vote store reference).
 }
 
-/// might not be send it is local info, but serialize to keep history : yes
+impl PartialEq for Participation {
+  /// fast comp (fine if striple are checked)
+  fn eq(&self, other: &Participation) -> bool {
+    self.id == other.id
+  }
+}
+
+impl Eq for Participation { }
+
+impl SettableAttachment for Participation { }
+
+impl KeyVal for Participation {
+  type Key = Vec<u8>;
+  fn attachment_expected_size(&self) -> usize { 0 }
+  fn get_key_ref(&self) -> &Self::Key {
+    &self.id
+  }
+  fn get_key(&self) -> Self::Key {
+    self.id.clone()
+  }
+  fn get_attachment(&self) -> Option<&Attachment> {
+    None
+  }
+  fn encode_kv<S:Serializer> (&self, _s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+    panic!("currently unused consider removal")
+  }
+  fn decode_kv<'de,D:Deserializer<'de>> (_d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+    panic!("currently unused consider removal")
+  }
+}
+
+impl Participation {
+  pub fn new<P : OwnedStripleIf> (
+    user : &P,
+    vote_desc : &VoteDesc,
+    envelopes : &[(Envelope,bool)],
+    is_valid : bool) -> MResult<Self> {
+
+    let envelopes = envelopes.iter().map(|e|e.0.get_id().to_vec()).collect();
+
+    let (pkey,_) = <<<Participation as StripleImpl>::Kind as StripleKind>::S as SignatureScheme>::new_keypair().map_err(|e|StripleMydhtErr(e))?;
+    let mut participation = Participation {
+      id : Vec::new(),
+      pkey,
+      content : None,
+      sign : Vec::new(),
+      user : Vec::new(), // init in calc_init
+      votekey : vote_desc.get_id().to_vec(),
+      envelopes,
+      is_valid,
+    };
+    participation.calc_init(user).map_err(|e|StripleMydhtErr(e))?;
+    Ok(participation)
+  }
+}
+
+
+
+
+//------------------------ Vote
+
+#[derive(Debug,Serialize,Deserialize,Clone)]
+#[serde(finish_deserialize = "init_content_vote")]
 pub struct Vote {
+
+  /// id
+  id : Vec<u8>,
+  /// envelope id as key
+  pub envelopeid : Vec<u8>,
+  /// vote id (not that usefull (already in envelope))
+  pub vote_id : Vec<u8>,
+  /// actual reply to vote
+  reply : String,
+  pkey : Vec<u8>,
+  /// sign of reply with envelope key
+  sign : Vec<u8>,
+  #[serde(skip_serializing,skip_deserializing)]
+  /// obviously wrong, striple lib need some refacto to avoid such a buffer
+  /// (or allow bcont as bytes producer (meaning Read) from self)
+  content : Option<BCont<'static>>,
+ 
+}
+fn init_content_vote<E : SerdeDeError>(mut p : Vote) -> Result<Vote,E> {
+
+  p.content = Some(BCont::OwnedBytes(p.reply.clone().into_bytes()));
+  Ok(p)
+  // no check : would require a reference to envelope TODO consider doing it : would require a
+  // parameter for deserializing (vote store reference).
+}
+
+impl PartialEq for Vote {
+  /// fast comp (fine if striple are checked)
+  fn eq(&self, other: &Vote) -> bool {
+    self.id == other.id
+  }
+}
+
+impl Eq for Vote { }
+
+impl SettableAttachment for Vote { }
+
+impl KeyVal for Vote {
+  type Key = Vec<u8>;
+  fn attachment_expected_size(&self) -> usize { 0 }
+  fn get_key_ref(&self) -> &Self::Key {
+    &self.id
+  }
+  fn get_key(&self) -> Self::Key {
+    self.id.clone()
+  }
+  fn get_attachment(&self) -> Option<&Attachment> {
+    None
+  }
+  fn encode_kv<S:Serializer> (&self, _s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+    panic!("currently unused consider removal")
+  }
+  fn decode_kv<'de,D:Deserializer<'de>> (_d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+    panic!("currently unused consider removal")
+  }
+}
+
+impl Vote {
+  pub fn new (
+    owned_envelope : &(&Envelope,&[u8]),
+    vote_desc : &VoteDesc,
+    value : String) -> MResult<Self> {
+
+    let (pkey,_) = <<<Vote as StripleImpl>::Kind as StripleKind>::S as SignatureScheme>::new_keypair().map_err(|e|StripleMydhtErr(e))?;
+    let mut vote = Vote {
+      id : Vec::new(),
+      envelopeid : Vec::new(),
+      content : None,
+      pkey,
+      sign : Vec::new(),
+      vote_id : vote_desc.get_id().to_vec(),
+      reply : value,
+    };
+    vote.calc_init(owned_envelope).map_err(|e|StripleMydhtErr(e))?;
+    Ok(vote)
+  }
+}
+
+
+
+//------------------------
+/// might not be send it is local info, but serialize to keep history : yes
+/// TODO useless : correspond to VoteDesc but at final state
+pub struct VoteEnd {
   /// id to query for vote TODO use something like bitcoin address
   shortkey : String,
   /// original desc TODO do not serialize it or send it
@@ -400,7 +576,7 @@ pub struct SubVoteDesc ;
 // avoid misuse leading to loss of anonymate
 pub struct SubVote {
   /// original vote TODO do not serialize it
-  vote : Vote,
+  vote : VoteEnd,
   subparticipant : Vec<Vec<u8>>, // key to peer TODO parameterized
 }
 // TODO param this later

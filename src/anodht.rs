@@ -1,8 +1,14 @@
 //! Anonymous MyDHT instance to share enveloppe and votes through tunnel
 
 extern crate sized_windows_lim;
+use striple::striple::{
+  OwnedStripleIf,
+  StripleIf,
+};
+
 use maindht::{
   MainDHTConf,
+  MainKVStoreCommand,
 };
 use mydht::dhtimpl::{
   NoShadow,
@@ -44,6 +50,7 @@ use mydht::api::{
 };
 use vote::{
   Envelope,
+  Vote,
 };
 
 
@@ -166,9 +173,10 @@ use mydht::api::{
 // local type alias
 type MLSend<MC : MyDHTConf> = <MC::MainLoopChannelIn as SpawnChannel<MainLoopCommand<MC>>>::Send;
 
-pub trait AnoAddress {
+pub trait AnoAddress : StripleIf {
   type Address;
   fn get_sec_address (&self) -> &Self::Address;
+  fn get_pri_key (&self) -> Vec<u8>;
 }
 
 pub type AnoDHTConf<P,SP,SI> = MyDHTTunnelConfType<AnoTunDHTConf<P,SP,SI>>;
@@ -206,7 +214,7 @@ impl<P : Peer + AnoAddress<Address = SerSocketAddr>> KeyVal for AnoPeer<P> {
   }
   fn get_key(&self) -> Self::Key {
     let inner : &P = self.0.borrow();
-    inner.get_key()
+    KeyVal::get_key(inner)
   }
   fn get_attachment(&self) -> Option<&Attachment> {
     let inner : &P = self.0.borrow();
@@ -487,6 +495,7 @@ impl<MC : MyDHTConf> Route<MC> for RandomRoute
 #[serde(bound(deserialize = ""))]
 pub enum StoreAnoMsg {
   STORE_ENVELOPE(Envelope),
+  STORE_VOTE(Vote),
 }
 
 impl SettableAttachments for StoreAnoMsg {
@@ -537,8 +546,8 @@ impl ApiQueriable for AnoServiceICommand {
 
 impl<P> PeerStatusListener<P> for AnoServiceICommand {
   const DO_LISTEN : bool = false;
-  fn build_command(c : PeerStatusCommand<P>) -> Self {
-    unreachable!()
+  fn build_command(c : PeerStatusCommand<P>) -> Option<Self> {
+    None
   }
 }
 impl<
@@ -556,16 +565,26 @@ impl<
     match req {
 
       GlobalCommand::Distant(_opr,AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))) => {
-
         let enveloperef = ArcRef::new(MainStoreKV::Envelope(envelope));
-        let c_store_env = ApiCommand::call_service(KVStoreCommand::StoreLocally(enveloperef,1,None));
+        let c_store_env = ApiCommand::call_service(MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(enveloperef,1,None)));
         self.1.send(c_store_env)?;
+        Ok(GlobalTunnelReply::NoRep)
+      },
+      GlobalCommand::Distant(_opr,AnoServiceICommand(StoreAnoMsg::STORE_VOTE(vote))) => {
+        let voteref = ArcRef::new(MainStoreKV::Vote(vote));
+        let c_store_vote = ApiCommand::call_service(MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(voteref,1,None)));
+        self.1.send(c_store_vote)?;
         Ok(GlobalTunnelReply::NoRep)
       },
       GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))) => {
         // proxy message
         Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))))
       },
+      GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STORE_VOTE(vote))) => {
+        // proxy message
+        Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STORE_VOTE(vote))))
+      },
+
     }
   }
 }

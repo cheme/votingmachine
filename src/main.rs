@@ -16,7 +16,6 @@ extern crate serde;
 extern crate serde_json;
 extern crate mydht_bincode;
 
- 
 use mydht::rules::DHTRules; 
 use striple::anystriple::{
   Rsa2048Sha512,
@@ -105,6 +104,7 @@ use votingmachine::vote::striples;
 use votingmachine::maindht::{
   MainDHTConf as MainDHTConfC,
   DHTRULES_MAIN,
+  MainKVStoreCommand,
 };
 use votingmachine::anodht::{
   AnoDHTConf as AnoDHTConfC,
@@ -443,10 +443,10 @@ fn do_vote(main_in : &mut DHTIn<MainDHTConf>, ano_in : &mut DHTIn<AnoDHTConf>, v
   }
 
   println!("check vote ok");
-  let voteref = ArcRef::new(MainStoreKV::VoteDesc(vote));
   // store vote (to make it accessible from other peers) : also trigger the vote process in global
   // service (TODO switch global service to kvstore overload to simple service)
-  let c_store_vote = ApiCommand::call_service(KVStoreCommand::StoreLocally(voteref.clone(),1,None));
+  //let c_store_vote = ApiCommand::call_service(MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(voteref.clone(),1,None)));
+  let c_store_vote = ApiCommand::call_service(MainKVStoreCommand::Vote(vote,vote_val));
   main_in.send(c_store_vote)?;
   Ok(())
 }

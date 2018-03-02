@@ -33,6 +33,8 @@ use striple::striple::{
   ref_builder_id_copy,
   Result as StripleResult,
   Error as StripleError,
+  OwnedStripleIf,
+  OwnedStripleFieldsIf,
 };
 
 use striple::storage::{
@@ -46,6 +48,8 @@ use vote::{
   VoteDesc,
   VoteDescStripleContent,
   Envelope,
+  Participation,
+  Vote,
 };
 use mydht::mydhtresult::Result as MResult;
 use mydht::mydhtresult::Error as MError;
@@ -347,6 +351,9 @@ impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> AnoAddress for S
   fn get_sec_address (&self) -> &Self::Address {
     &self.secaddress
   }
+  fn get_pri_key(&self) -> Vec<u8> {
+    self.inner.get_pri_key()
+  }
 }
 
 impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> Peer for StriplePeer<A,B,C,S> {
@@ -568,6 +575,124 @@ impl InstantiableStripleImpl for Envelope {
     id : Vec<u8>) {
     self.id = id;
     self.votekey = from;
+    self.sign = sig;
+  }
+}
+
+//------------------------Participation------------------------------------
+impl StripleImpl for Participation {
+  // Participation public : could be private but no need at this point
+  type Kind = PubSha512;
+}
+
+impl StripleFieldsIf for Participation {
+  #[inline]
+  fn get_algo_key(&self) -> ByteSlice {
+    ByteSlice::Static(<<Self as StripleImpl>::Kind as StripleKind>::get_algo_key())
+  }
+  fn get_enc(&self) -> ByteSlice {
+    // TODO get static value from loaded ref!!
+    ByteSlice::Static(NOKEY)
+  }
+  fn get_id(&self) -> &[u8] {
+    &self.id[..]
+  }
+  fn get_from(&self) -> ByteSlice {
+    ByteSlice::Owned(&self.user[..])
+  }
+  fn get_about(&self) -> ByteSlice {
+    // For now simply the vote desc id : incorrect 
+    // TODO create a striple to fill it : another striple impl of the vote desc
+    // to derive a vote participation striple desc : right now it is incorrect(same about use for others
+    // objects types).
+    ByteSlice::Owned(&self.votekey[..])
+  }
+  // TODO change striple interface to allow calculate each time
+  fn get_content<'a>(&'a self) -> Option<&'a BCont<'a>> {
+    self.content.as_ref()
+  }
+
+  fn get_content_ids(&self) -> Vec<&[u8]> {
+    Vec::new()
+  }
+
+  fn get_key(&self) -> &[u8] {
+    &self.pkey[..]
+  }
+
+  fn get_sig(&self) -> &[u8] {
+    &self.sign[..]
+  }
+
+}
+
+impl InstantiableStripleImpl for Participation {
+  fn init(&mut self,
+    from : Vec<u8>,
+    sig : Vec<u8>,
+    id : Vec<u8>) {
+    self.id = id;
+    self.user = from;
+    self.sign = sig;
+  }
+}
+
+//------------------------Vote------------------------------------
+impl StripleImpl for Vote {
+  // Vote public : could be private but no need at this point
+  type Kind = PubSha512;
+}
+
+impl StripleFieldsIf for Vote {
+  #[inline]
+  fn get_algo_key(&self) -> ByteSlice {
+    ByteSlice::Static(<<Self as StripleImpl>::Kind as StripleKind>::get_algo_key())
+  }
+  fn get_enc(&self) -> ByteSlice {
+    // TODO get static value from loaded ref!!
+    // here it is standard string utf8
+    ByteSlice::Static(NOKEY)
+  }
+  fn get_id(&self) -> &[u8] {
+    &self.id[..]
+  }
+  fn get_from(&self) -> ByteSlice {
+    ByteSlice::Owned(&self.envelopeid[..])
+  }
+  fn get_about(&self) -> ByteSlice {
+    // For now simply the vote desc id : incorrect 
+    // TODO create a striple to fill it : another striple impl of the vote desc
+    // to derive a vote participation striple desc : right now it is incorrect(same about use for others
+    // objects types).
+    // Note that vote id does not require to be sign
+    ByteSlice::Owned(&self.vote_id[..])
+  }
+  // TODO change striple interface to allow calculate each time
+  fn get_content<'a>(&'a self) -> Option<&'a BCont<'a>> {
+    self.content.as_ref()
+  }
+
+  fn get_content_ids(&self) -> Vec<&[u8]> {
+    Vec::new()
+  }
+
+  fn get_key(&self) -> &[u8] {
+    &self.pkey[..]
+  }
+
+  fn get_sig(&self) -> &[u8] {
+    &self.sign[..]
+  }
+
+}
+
+impl InstantiableStripleImpl for Vote {
+  fn init(&mut self,
+    from : Vec<u8>,
+    sig : Vec<u8>,
+    id : Vec<u8>) {
+    self.id = id;
+    self.envelopeid = from;
     self.sign = sig;
   }
 }

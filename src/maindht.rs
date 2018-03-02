@@ -2,7 +2,10 @@
 use anodht::{
   AnoAddress,
 };
-use std::collections::BTreeMap;
+use std::collections::{
+  VecDeque,
+  BTreeMap,
+};
 use anodht::{
   AnoTunDHTConf2,
 };
@@ -13,12 +16,18 @@ use mydht_tunnel::{
  
 use mydht::api::{
   DHTIn,
+  ApiResultSend,
+  ApiCommand,
+  ApiQueriable,
+  ApiRepliable,
 };
+
 use mydht_tcp_loop::{
   Tcp,
 };
 use service::VotingService; 
-use serde::{Serializer,Deserializer};
+use serde::{Serializer,Deserializer,Serialize,Deserialize};
+use serde::de::DeserializeOwned;
 use std::borrow::Borrow;
 use std::mem::replace;
 use mydht_slab::slab::Slab;
@@ -44,8 +53,13 @@ use mydht::peer::{
 };
 use mydht::keyval::{
   KeyVal,
+  SettableAttachments,
+  SettableAttachment,
+  GettableAttachments,
+  Attachment,
 };
 use mydht::utils::{
+  OptFrom,
   Ref,
   ArcRef,
   OneResult,
@@ -53,6 +67,10 @@ use mydht::utils::{
   Proto,
 };
 use mydht::{
+  MCCommand,
+  PeerStatusListener,
+  RegReaderBorrow,
+  PeerStatusCommand,
   MyDHTConf,
   RWSlabEntry,
   PeerCacheEntry,
@@ -66,7 +84,9 @@ use mydht::{
   ClientMode,
 };
 use mydht::storeprop::{
+  RouteBaseMessage,
   KVStoreProtoMsgWithPeer,
+  KVStoreProtoMsg,
   KVStoreCommand,
   KVStoreReply,
   KVStoreService,
@@ -91,10 +111,167 @@ use mydht::mydhtresult::{
 use std::time::Instant;
 use std::time::Duration;
 use vote::{
+  VoteDesc,
   MainStoreKV,
   MainStoreKVRef,
 };
 
+#[derive(Serialize,Deserialize,Debug)]
+#[serde(bound(deserialize = ""))]
+pub struct MainKVStoreProtoMsgWithPeer<P : Peer> 
+  (KVStoreProtoMsgWithPeer<P,ArcRef<P>,MainStoreKV,MainStoreKVRef>);
+
+// ----------- boilerplate : need composition macro...
+
+
+impl<P : Peer>
+    SettableAttachments for MainKVStoreProtoMsgWithPeer<P> {
+  #[inline]
+  fn attachment_expected_sizes(&self) -> Vec<usize> {
+    self.0.attachment_expected_sizes()
+  }
+  #[inline]
+  fn set_attachments(& mut self, at : &[Attachment]) -> bool {
+    self.0.set_attachments(at)
+  }
+}
+impl<P : Peer>
+    GettableAttachments for MainKVStoreProtoMsgWithPeer<P> {
+  #[inline]
+  fn get_attachments(&self) -> Vec<&Attachment> {
+    self.0.get_attachments()
+  }
+  #[inline]
+  fn get_nb_attachments(&self) -> usize {
+    self.0.get_nb_attachments()
+  }
+}
+
+
+
+// -----------
+
+// TODO switch some store value to enum when they are not stored
+#[derive(Clone)]
+pub enum MainKVStoreCommand<P : Peer> {
+  Vote(VoteDesc,String),
+  PeerReply(Option<ArcRef<P>>),
+  Store(KVStoreCommand<P,ArcRef<P>,MainStoreKV,MainStoreKVRef>),
+}
+
+// ----------- boilerplate : need composition macro...
+impl<
+  P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
+  PM : PeerMgmtMeths<P>,
+  > RegReaderBorrow<MainDHTConf<P,PM>> for MainKVStoreCommand<P> {
+  #[inline]
+  fn get_read(&self) -> Option<&<<MainDHTConf<P,PM> as MyDHTConf>::Transport as Transport>::ReadStream> {
+    // warning should type match to get from kvstore command
+    None
+  }
+}
+
+impl<P : Peer> ApiQueriable for MainKVStoreCommand<P> {
+  fn is_api_reply(&self) -> bool {
+    if let MainKVStoreCommand::Store(ref c) = *self {
+      c.is_api_reply()
+    } else {
+      false
+    }
+  }
+  fn set_api_reply(&mut self, aid : ApiQueryId) {
+    if let MainKVStoreCommand::Store(ref mut c) = *self {
+      c.set_api_reply(aid)
+    }
+  }
+  fn get_api_reply(&self) -> Option<ApiQueryId> { 
+    if let MainKVStoreCommand::Store(ref c) = *self {
+      c.get_api_reply()
+    } else {
+      None 
+    }
+  }
+}
+
+impl<P : Peer> RouteBaseMessage<P> for MainKVStoreCommand<P> {
+  #[inline]
+  fn get_filter_mut(&mut self) -> Option<&mut VecDeque<<P as KeyVal>::Key>> {
+    if let MainKVStoreCommand::Store(ref mut c) = *self {
+      c.get_filter_mut()
+    } else {
+      None
+    }
+  }
+  #[inline]
+  fn adjust_lastsent_next_hop(&mut self, nbquery : usize) {
+    if let MainKVStoreCommand::Store(ref mut c) = *self {
+      c.adjust_lastsent_next_hop(nbquery)
+    }
+  }
+}
+
+// TODO this impl seems hard to derive : some redesign?
+impl<
+  P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
+  PM : PeerMgmtMeths<P>,
+  > Into<MCCommand<MainDHTConf<P,PM>>> for MainKVStoreProtoMsgWithPeer<P> {
+
+  fn into(self) -> MCCommand<MainDHTConf<P,PM>> {
+
+    match self.0 {
+      KVStoreProtoMsgWithPeer::Main(pmess) => MCCommand::Global(MainKVStoreCommand::Store(pmess.into())),
+      KVStoreProtoMsgWithPeer::PeerMgmt(pmess) => MCCommand::PeerStore(pmess.into()),
+    }
+/*    let kvstoremsg : KVStoreCommand<P,ArcRef<P>,MainStoreKV,MainStoreKVRef> = self.0.into();
+
+    MainKVStoreCommand::Store(kvstoremsg)*/
+  }
+}
+// TODO this impl seems hard to derive : some redesign?
+impl<
+  P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>, 
+  PM : PeerMgmtMeths<P>,
+  > OptFrom<MCCommand<MainDHTConf<P,PM>>> for MainKVStoreProtoMsgWithPeer<P> {
+
+  #[inline]
+  fn can_from(c : &MCCommand<MainDHTConf<P,PM>>) -> bool {
+
+    match *c {
+      MCCommand::Local(..) => {
+        false
+      },
+      MCCommand::Global(MainKVStoreCommand::Store(ref gc)) => {
+        <KVStoreProtoMsg<_,_,_> as OptFrom<KVStoreCommand<_,_,_,_>>>::can_from(gc)
+      }
+      MCCommand::Global(..) => {
+        false
+      },
+      MCCommand::PeerStore(ref pc) => {
+        <KVStoreProtoMsg<_,_,_> as OptFrom<KVStoreCommand<_,_,_,_>>>::can_from(pc)
+      },
+      MCCommand::TryConnect(..) => {
+        false
+      },
+    }
+//    <KVStoreProtoMsgWithPeer<P,ArcRef<P>,MainStoreKV,MainStoreKVRef>>::can_from(c)
+  }
+  #[inline]
+  fn opt_from(c : MCCommand<MainDHTConf<P,PM>>) -> Option<Self> {
+    match c {
+      MCCommand::Global(MainKVStoreCommand::Store(pmess)) => {
+        <KVStoreProtoMsg<_,_,_> as OptFrom<KVStoreCommand<_,_,_,_>>>::opt_from(pmess)
+          .map(|t|MainKVStoreProtoMsgWithPeer(KVStoreProtoMsgWithPeer::Main(t)))
+      },
+      MCCommand::PeerStore(pmess) => {
+        <KVStoreProtoMsg<_,_,_> as OptFrom<KVStoreCommand<_,_,_,_>>>::opt_from(pmess)
+          .map(|t|MainKVStoreProtoMsgWithPeer(KVStoreProtoMsgWithPeer::PeerMgmt(t)))
+      },
+      _ => None,
+    }
+  }
+}
+ 
+// --------------
 
 pub type MainStoreKVStore = SimpleCache<MainStoreKV,HashMap<<MainStoreKV as KeyVal>::Key,MainStoreKV>>;
 pub type MainStoreQueryCache<P,PR> = SimpleCacheQuery<P,MainStoreKVRef,PR,HashMapQuery<P,MainStoreKVRef,PR>>;
@@ -176,12 +353,12 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
   type Route = PeerCacheRouteBase;
 
   // keep val of global service to peer
-  type ProtoMsg = KVStoreProtoMsgWithPeer<Self::Peer,Self::PeerRef,MainStoreKV,MainStoreKVRef>;
+  type ProtoMsg = MainKVStoreProtoMsgWithPeer<Self::Peer>;
 
 
   nolocal!();
 
-  type GlobalServiceCommand = KVStoreCommand<Self::Peer,Self::PeerRef,MainStoreKV,MainStoreKVRef>;
+  type GlobalServiceCommand = MainKVStoreCommand<Self::Peer>;
   type GlobalServiceReply = KVStoreReply<MainStoreKVRef>;
   type GlobalService = VotingService<Self::Peer,Self::PeerRef,PM>;
   type GlobalServiceSpawn = ThreadPark;
@@ -332,9 +509,15 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
       }
     );
     let ano_dhtin = replace(&mut self.ano_dhtin,None).unwrap();
+
+    let me = self.init_ref_peer()?;
+    let pk = {
+      let p : &P = me.borrow();
+      p.get_pri_key()
+    };
     Ok(VotingService {
       store_service : KVStoreService {
-        me : self.init_ref_peer()?,
+        me,
         init_store : i_store,
         init_cache : i_cache,
         store : None,
@@ -345,6 +528,8 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
       },
       ano_dhtin,
       votes : BTreeMap::new(),
+      me_sign_key : pk,
+      waiting_user : BTreeMap::new(),
     })
   }
 
@@ -381,3 +566,14 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
 
 }
 
+impl<P : Peer> PeerStatusListener<ArcRef<P>> for MainKVStoreCommand<P> {
+  // TODO next listen to proxy to anodht on new connect
+  const DO_LISTEN : bool = false;
+  fn build_command(c : PeerStatusCommand<ArcRef<P>>) -> Option<Self> {
+    match c {
+      PeerStatusCommand::PeerOnline(..) => None,
+      PeerStatusCommand::PeerOffline(..) => None,
+      PeerStatusCommand::PeerQuery(rp) => Some(MainKVStoreCommand::PeerReply(rp)),
+    }
+  }
+}
