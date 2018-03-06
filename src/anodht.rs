@@ -2,7 +2,6 @@
 
 extern crate sized_windows_lim;
 use striple::striple::{
-  OwnedStripleIf,
   StripleIf,
 };
 
@@ -32,7 +31,6 @@ use mydht::{
   PeerStatusListener,
   PeerStatusCommand,
   MCCommand,
-  MCReply,
   Route,
   IndexableWriteCache,
   PeerPriority,
@@ -40,13 +38,9 @@ use mydht::{
 };
 
 use mydht::api::{
-  Api,
-  ApiResult,
-  ApiResultSend,
   ApiCommand,
   ApiQueriable,
   ApiQueryId,
-  ApiRepliable,
 };
 use vote::{
   Envelope,
@@ -54,7 +48,6 @@ use vote::{
 };
 
 
-use service::VotingService; 
 use mydht::service::{
   Service,
   SpawnerYield,
@@ -64,28 +57,21 @@ use mydht::service::{
 };
 use mydht::{
   GlobalCommand,
-  GlobalReply,
 };
 
-use serde::{Serializer,Deserializer};
 use std::borrow::Borrow;
 use std::mem::replace;
-use mydht_slab::slab::Slab;
 use mydht_inefficientmap::inefficientmap::InefficientmapBase2;
 use mydht_bincode::Bincode;
 use mydht::kvstoreif::{
   KVStore,
-  KVCache,
 };
 use mydht::transportif::{
   Transport,
 };
 use mydht::dhtimpl::{
-  DhtRules,
   SimpleRules,
   SimpleCache,
-  SimpleCacheQuery,
-  HashMapQuery,
 };
 use mydht::peer::{
   Peer,
@@ -99,48 +85,25 @@ use mydht::utils::{
   OptFrom,
   ArcRef,
   CloneRef,
-  OneResult,
   SerSocketAddr,
   Proto,
 };
 use mydht::{
   MyDHTConf,
-  RWSlabEntry,
   PeerCacheEntry,
   AddressCacheEntry,
   ChallengeEntry,
-  PeerCacheRouteBase,
-  LocalReply,
-  ClientMode,
 };
 use mydht::storeprop::{
-  KVStoreProtoMsgWithPeer,
   KVStoreCommand,
-  KVStoreReply,
-  KVStoreService,
 };
-use mydht::noservice::{
-  NoCommandReply,
-};
-use mydht::service::{
-  ThreadPark,
-  MpscChannel,
-  NoSend,
-  NoService,
-  NoSpawn,
-  NoChannel,
-};
-use std::hash::Hash;
 use std::marker::PhantomData;
 use std::collections::HashMap;
 use mydht::mydhtresult::{
   Result,
 };
-use std::time::Instant;
-use std::time::Duration;
 use vote::{
   MainStoreKV,
-  MainStoreKVRef,
 };
 use mydht_tunnel::{
   MyDHTTunnelConf,
@@ -465,7 +428,7 @@ impl<MC : MyDHTConf> Route<MC> for RandomRoute
   fn route(&mut self, 
            targetted_nb : usize, 
            c : MCCommand<MC>,
-           slab : &mut <MC as MyDHTConf>::Slab, 
+           _slab : &mut <MC as MyDHTConf>::Slab, 
            cache : &mut <MC as MyDHTConf>::PeerCache) 
     -> Result<(MCCommand<MC>,Vec<usize>)> {
     let totl = cache.len_c();
@@ -494,8 +457,8 @@ impl<MC : MyDHTConf> Route<MC> for RandomRoute
 #[derive(Clone,Serialize,Deserialize,Debug)]
 #[serde(bound(deserialize = ""))]
 pub enum StoreAnoMsg {
-  STORE_ENVELOPE(Envelope),
-  STORE_VOTE(Vote),
+  STOREENVELOPE(Envelope),
+  STOREVOTE(Vote),
 }
 
 impl SettableAttachments for StoreAnoMsg {
@@ -546,7 +509,7 @@ impl ApiQueriable for AnoServiceICommand {
 
 impl<P> PeerStatusListener<P> for AnoServiceICommand {
   const DO_LISTEN : bool = false;
-  fn build_command(c : PeerStatusCommand<P>) -> Option<Self> {
+  fn build_command(_c : PeerStatusCommand<P>) -> Option<Self> {
     None
   }
 }
@@ -564,25 +527,25 @@ impl<
   fn call<S : SpawnerYield>(&mut self, req: Self::CommandIn, _async_yield : &mut S) -> Result<Self::CommandOut> {
     match req {
 
-      GlobalCommand::Distant(_opr,AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))) => {
+      GlobalCommand::Distant(_opr,AnoServiceICommand(StoreAnoMsg::STOREENVELOPE(envelope))) => {
         let enveloperef = ArcRef::new(MainStoreKV::Envelope(envelope));
         let c_store_env = ApiCommand::call_service(MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(enveloperef,1,None)));
         self.1.send(c_store_env)?;
         Ok(GlobalTunnelReply::NoRep)
       },
-      GlobalCommand::Distant(_opr,AnoServiceICommand(StoreAnoMsg::STORE_VOTE(vote))) => {
+      GlobalCommand::Distant(_opr,AnoServiceICommand(StoreAnoMsg::STOREVOTE(vote))) => {
         let voteref = ArcRef::new(MainStoreKV::Vote(vote));
         let c_store_vote = ApiCommand::call_service(MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(voteref,1,None)));
         self.1.send(c_store_vote)?;
         Ok(GlobalTunnelReply::NoRep)
       },
-      GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))) => {
+      GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STOREENVELOPE(envelope))) => {
         // proxy message
-        Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope))))
+        Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STOREENVELOPE(envelope))))
       },
-      GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STORE_VOTE(vote))) => {
+      GlobalCommand::Local(AnoServiceICommand(StoreAnoMsg::STOREVOTE(vote))) => {
         // proxy message
-        Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STORE_VOTE(vote))))
+        Ok(GlobalTunnelReply::SendCommandToRand(AnoServiceICommand(StoreAnoMsg::STOREVOTE(vote))))
       },
 
     }

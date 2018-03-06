@@ -5,14 +5,12 @@ use mydht::mydhtresult::Result as MResult;
 use bincode;
 use serde::{Serializer,Deserializer};
 use serde::de::Error as SerdeDeError;
-use std::borrow::Borrow;
 use striple::striple::{
   StripleIf,
   StripleFieldsIf,
   OwnedStripleIf,
   BCont,
 };
-use mydht::transportif::Address;
 
 use striple::striple::{
   InstantiableStripleImpl,
@@ -22,21 +20,14 @@ use striple::striple::{
 };
 use time::{
   self,
-  Timespec,
   Duration,
 };
 
 use mydht::dhtif::{
-  Peer,
-  Key,
-  Key as KVContent,
   KeyVal,
 };
 
 use mydht::utils::{
-  Ref,
-  SRef,
-  SToRef,
   ArcRef,
 };
 
@@ -148,10 +139,10 @@ impl KeyVal for MainStoreKV {
       MainStoreKV::Vote(ref inner) => inner.get_attachment(),
     }
   }
-  fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+  fn encode_kv<S:Serializer> (&self, _s : S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
     panic!("currently unused consider removal")
   }
-  fn decode_kv<'de,D:Deserializer<'de>> (d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+  fn decode_kv<'de,D:Deserializer<'de>> (_d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
     panic!("currently unused consider removal")
   }
 }
@@ -196,10 +187,10 @@ impl KeyVal for AnoStoreKV {
       AnoStoreKV::Envelope(ref inner) => inner.get_attachment(),
     }
   }
-  fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+  fn encode_kv<S:Serializer> (&self, _s : S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
     panic!("currently unused consider removal")
   }
-  fn decode_kv<'de,D:Deserializer<'de>> (d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+  fn decode_kv<'de,D:Deserializer<'de>> (_d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
     panic!("currently unused consider removal")
   }
 }
@@ -221,10 +212,10 @@ impl KeyVal for VoteDesc {
   fn get_attachment(&self) -> Option<&Attachment> {
     None
   }
-  fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+  fn encode_kv<S:Serializer> (&self, _s : S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
     panic!("currently unused consider removal")
   }
-  fn decode_kv<'de,D:Deserializer<'de>> (d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+  fn decode_kv<'de,D:Deserializer<'de>> (_d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
     panic!("currently unused consider removal")
   }
 }
@@ -342,10 +333,10 @@ impl KeyVal for Envelope {
   fn get_attachment(&self) -> Option<&Attachment> {
     None
   }
-  fn encode_kv<S:Serializer> (&self, s: S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
+  fn encode_kv<S:Serializer> (&self, _s : S, _ : bool, _ : bool) -> Result<S::Ok, S::Error> {
     panic!("currently unused consider removal")
   }
-  fn decode_kv<'de,D:Deserializer<'de>> (d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+  fn decode_kv<'de,D:Deserializer<'de>> (_d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
     panic!("currently unused consider removal")
   }
 }
@@ -396,11 +387,9 @@ pub struct Participation {
   sign : Vec<u8>,
 }
 fn init_content_participation<E : SerdeDeError>(mut p : Participation) -> Result<Participation,E> {
-
-  // should use bincode encoding (depends of from definition)
-  let v : u8 = if p.is_valid { 1 } else { 0 };
-  p.content = Some(BCont::OwnedBytes(vec![v]));
+  p.init_content();
   Ok(p)
+
   // no check : would require a reference to user TODO consider doing it : would require a
   // parameter for deserializing (vote store reference).
 }
@@ -456,8 +445,14 @@ impl Participation {
       envelopes,
       is_valid,
     };
+    participation.init_content();
     participation.calc_init(user).map_err(|e|StripleMydhtErr(e))?;
     Ok(participation)
+  }
+  fn init_content(&mut self) {
+    // should use bincode encoding (depends of from definition)
+    let v : u8 = if self.is_valid { 1 } else { 0 };
+    self.content = Some(BCont::OwnedBytes(vec![v]));
   }
 }
 
@@ -488,9 +483,9 @@ pub struct Vote {
  
 }
 fn init_content_vote<E : SerdeDeError>(mut p : Vote) -> Result<Vote,E> {
-
-  p.content = Some(BCont::OwnedBytes(p.reply.clone().into_bytes()));
+  p.init_content();
   Ok(p)
+
   // no check : would require a reference to envelope TODO consider doing it : would require a
   // parameter for deserializing (vote store reference).
 }
@@ -542,8 +537,13 @@ impl Vote {
       vote_id : vote_desc.get_id().to_vec(),
       reply : value,
     };
+    vote.init_content();
     vote.calc_init(owned_envelope).map_err(|e|StripleMydhtErr(e))?;
     Ok(vote)
+  }
+  #[inline]
+  fn init_content(&mut self) {
+    self.content = Some(BCont::OwnedBytes(self.reply.clone().into_bytes()));
   }
 }
 

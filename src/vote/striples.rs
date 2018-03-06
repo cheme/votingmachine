@@ -1,19 +1,12 @@
 //! striple implementation of various vote objects
-use mydht::utils::TimeSpecExt;
 use mydht::dhtimpl::{
   NoShadow,
 };
 use anodht::{
   AnoAddress,
 };
-use time::{
-  self,
-  Timespec,
-  Duration,
-};
 use bincode;
 use std::error::Error as ErrorTrait;
-use bincode::Error as BinError;
 use std::result::Result as StdResult;
 use std::io::Cursor;
 use std::fs::File;
@@ -33,20 +26,16 @@ use striple::striple::{
   ref_builder_id_copy,
   Result as StripleResult,
   Error as StripleError,
-  OwnedStripleIf,
-  OwnedStripleFieldsIf,
 };
 
 use striple::storage::{
   FileStripleIterator,
   init_noread_key,
-  init_any_cipher_stdin,
 };
 use serde::{Serializer,Deserializer};
 use serde::de::Error as SerdeDeError;
 use vote::{
   VoteDesc,
-  VoteDescStripleContent,
   Envelope,
   Participation,
   Vote,
@@ -56,11 +45,6 @@ use mydht::mydhtresult::Error as MError;
 use mydht::mydhtresult::ErrorKind as MErrorKind;
 use std::marker::{
   PhantomData,
-  Sync,
-};
-use striple::striple::{
-  StripleRef,
-  AsStriple,
 };
 use striple::anystriple::{
   Rsa2048Sha512,
@@ -70,17 +54,13 @@ use striple::anystriple::{
 
 use mydht_openssl::rsa_openssl::{
   RSAPeer,
-  RSA2048SHA512AES256,
   OpenSSLConf,
-  ASymSymMode,
-
 };
 
 use mydht::transportif::Address;
 
 use mydht::dhtif::{
   Peer,
-  Key,
   Key as KVContent,
   KeyVal,
 };
@@ -398,14 +378,14 @@ impl<A : KVContent,B : Address,C : OpenSSLConf,S : StripleKind> KeyVal for Strip
   fn get_attachment(&self) -> Option<&Attachment> {
     self.inner.get_attachment()
   }
-  fn encode_kv<S1:Serializer> (&self, s: S1, _ : bool, _ : bool) -> Result<S1::Ok, S1::Error> {
+  fn encode_kv<S1:Serializer> (&self, _s : S1, _ : bool, _ : bool) -> Result<S1::Ok, S1::Error> {
     panic!("TODO rem from trait")
   }
   /// First boolean indicates if the encoding is locally used (not send to other peers).
   /// Second boolean indicates if attachment must be added in the encoding (or just a reference
   /// kept).
   /// Default implementation decode through encode trait.
-  fn decode_kv<'de,D:Deserializer<'de>> (d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
+  fn decode_kv<'de,D:Deserializer<'de>> (_d : D, _ : bool, _ : bool) -> Result<Self, D::Error> {
     panic!("TODO rem from trait")
   }
 

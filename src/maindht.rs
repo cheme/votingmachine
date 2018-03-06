@@ -16,18 +16,13 @@ use mydht_tunnel::{
  
 use mydht::api::{
   DHTIn,
-  ApiResultSend,
-  ApiCommand,
   ApiQueriable,
-  ApiRepliable,
 };
 
 use mydht_tcp_loop::{
   Tcp,
 };
 use service::VotingService; 
-use serde::{Serializer,Deserializer,Serialize,Deserialize};
-use serde::de::DeserializeOwned;
 use std::borrow::Borrow;
 use std::mem::replace;
 use mydht_slab::slab::Slab;
@@ -35,7 +30,6 @@ use mydht_inefficientmap::inefficientmap::InefficientmapBase2;
 use mydht_bincode::Bincode;
 use mydht::kvstoreif::{
   KVStore,
-  KVCache,
 };
 use mydht::transportif::{
   Transport,
@@ -54,13 +48,11 @@ use mydht::peer::{
 use mydht::keyval::{
   KeyVal,
   SettableAttachments,
-  SettableAttachment,
   GettableAttachments,
   Attachment,
 };
 use mydht::utils::{
   OptFrom,
-  Ref,
   ArcRef,
   OneResult,
   SerSocketAddr,

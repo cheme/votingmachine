@@ -1,16 +1,11 @@
 //! main service (in the main dht) for internal logic (synch of content ...),
 //! with inner standerad kvstore service
 use mydht_tunnel::{
-  MyDHTTunnelConf,
   MyDHTTunnelConfType,
-  GlobalTunnelReply,
-  SSWCache,
-  SSRCache,
   GlobalTunnelCommand,
 };
 use striple::striple::{
   StripleIf,
-  OwnedStripleIf,
   StripleFieldsIf,
 };
 use vote::striples::{
@@ -28,9 +23,7 @@ use anodht::{
   StoreAnoMsg,
   AnoAddress,
 };
-use std::hash::Hash;
 use anodht::{
-  AnoDHTConf,
   AnoTunDHTConf2,
 };
  
@@ -38,7 +31,6 @@ use mydht::api::{
   DHTIn,
 };
 use maindht::{
-  MainDHTConf,
   MainKVStoreCommand,
 };
 
@@ -67,7 +59,6 @@ use mydht::service::{
   SpawnSend,
 };
 use mydht::storeprop::{
-  KVStoreProtoMsgWithPeer,
   KVStoreCommand,
   KVStoreReply,
   KVStoreService,
@@ -147,6 +138,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
   {
 
   fn broadcast_msg (me_key : &<P as KeyVal>::Key, vote_desc : &VoteDesc, val : MainStoreKVRef) -> Result<<Self as Service>::CommandOut> {
+
     let mut dests = Vec::with_capacity(vote_desc.nb_invit());
     for destk in vote_desc.invitations.iter().filter(|k|&k[..] != &me_key[..])  {
       // TODO would be way better with peer ref
@@ -166,7 +158,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
   }
 
   /// filter for validation -> TODO transform to main method and include storage
-  fn vote_impl(&mut self, kv: &MainStoreKVRef, is_local : bool) -> Result<Option<<Self as Service>::CommandOut>> {
+  fn vote_impl(&mut self, kv: &MainStoreKVRef, is_local : bool, with_peer : Option<&ArcRef<P>>) -> Result<Option<<Self as Service>::CommandOut>> {
     if is_local {
     match *kv.borrow() {
       MainStoreKV::VoteDesc(ref _votedesc) => {
@@ -223,7 +215,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
             return Ok(Some(GlobalReply::NoRep));
           }
         }
-        let valid_vote = context.envelopes[env_pos].0.check(vote).map_err(|e|StripleMydhtErr(e))?;
+        let valid_vote = vote.check(&context.envelopes[env_pos].0).map_err(|e|StripleMydhtErr(e))?;
         if valid_vote {
           context.envelopes[env_pos].1 = true;
           context.votes.push(vote.clone());
@@ -237,15 +229,12 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
         };
         return Ok(Some(Self::broadcast_msg(me_key, &context.vote_desc, 
                 ArcRef::new(MainStoreKV::Vote(vote.clone())))?));
-
-
       },
-
     }
     } else {
     // distant
     match *kv.borrow() {
-      MainStoreKV::VoteDesc(ref votedesc) => {
+      MainStoreKV::VoteDesc(ref _votedesc) => {
         unimplemented!()
       },
       MainStoreKV::Envelope(ref envelope) => {
@@ -284,7 +273,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
               // TODO remove : only for testing
               {
                 let mb : &P = self.store_service.me.borrow();
-                assert!(mb.check(&participation).map_err(|e|StripleMydhtErr(e))?);
+                assert!(participation.check(mb).map_err(|e|StripleMydhtErr(e))?);
               };
 
               // TODO refacto MainStoreKVRef to store a participation ref instead, probably need https://github.com/rust-lang/rust/pull/46706
@@ -304,6 +293,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
                 context.votant_ctx.insert(me_id, vc);
                 if valid {
                   context.participation_ok += 1;
+                  println!("part ++ !/> {}",context.participation_ok);
                 } else {
                   context.participation_ko += 1;
                 }
@@ -326,10 +316,27 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
         }
       },
       MainStoreKV::Participation(ref participation) => {
+                  println!("participation received");
         // TODO (not in poc) public synchro of everyone validating participation (in POC panic peer if
         // invalid)
         match self.votes.get_mut(&participation.votekey) {
           Some(ref mut context) => {
+
+            // init if reply of user query
+            if let Some(puser) = with_peer {
+              if !context.votant_ctx.contains_key(&participation.user) {
+                let uid = {
+                  let ub : &P = puser.borrow();
+                  ub.get_id().to_vec()
+                };
+                let vc = UserContext {
+                  user : puser.clone(),
+                  participation : None,
+                };
+                context.votant_ctx.insert(uid, vc);
+              }
+            }
+
             let from = match context.votant_ctx.get_mut(&participation.user) {
               Some(f) => f,
               None => {
@@ -342,6 +349,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
                   let mut st = vec![(is_local,kv.clone())];
                   self.waiting_user.insert(k,st);
                 }
+                  println!("participation query user");
                 // user query with callback!!
                 let query_user = GlobalReply::PeerStore(KVStoreCommand::WithLocalValue(participation.user.clone(), send_user_to_global));
  
@@ -353,6 +361,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
               participation.check(fp).map_err(|e|StripleMydhtErr(e))?
             };
             if checked_p {
+                  println!("participation checked");
               // TODO refact ref (see others comments)
               let add = match from.participation.as_ref() {
                 Some(p) => {
@@ -370,26 +379,29 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
                 from.participation = Some(participation.clone());
                 if participation.is_valid {
                   context.participation_ok += 1;
+                  println!("part ++ -/> {}",context.participation_ok);
                   if context.participation_ok == context.vote_desc.invitations.len() {
        
 
                     // make vote (sign by enveloppe, about votedesc)
                     let vote = Vote::new(&(&context.my_envelope,&context.my_envelope_priv_key), &context.vote_desc, context.my_reply.clone())?;
                     // TODO remove : only for testing
-                    assert!(context.my_envelope.check(&vote).map_err(|e|StripleMydhtErr(e))?);
-         
+                    assert!(vote.check(&context.my_envelope).map_err(|e|StripleMydhtErr(e))?);
+
                     // keep trace not really usefull for poc
                     context.my_vote = Some(vote.clone());
                     // share votes (store + query all) in anonymous dht
-                    let c_store_vote = GlobalTunnelCommand::Inner(AnoServiceICommand(StoreAnoMsg::STORE_VOTE(vote)));
+                    let c_store_vote = GlobalTunnelCommand::Inner(AnoServiceICommand(StoreAnoMsg::STOREVOTE(vote)));
+
+                  println!("sending ano VOTE");
                     let command = ApiCommand::call_service(c_store_vote);
                     self.ano_dhtin.send(command)?;
 
                   }
                 } else {
+                  context.participation_ko += 1;
                   // TODO should not panic
                   panic!("A user do not acknowledge its participation");
-                  context.participation_ko += 1;
                 }
               }
             } else {
@@ -419,7 +431,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
             return Ok(Some(GlobalReply::NoRep));
           }
         }
-        let valid_vote = context.envelopes[env_pos].0.check(vote).map_err(|e|StripleMydhtErr(e))?;
+        let valid_vote = vote.check(&context.envelopes[env_pos].0).map_err(|e|StripleMydhtErr(e))?;
         if valid_vote {
           context.envelopes[env_pos].1 = true;
           context.votes.push(vote.clone());
@@ -430,7 +442,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
 
         if context.votes.len() == context.vote_desc.invitations.len() {
 
-          let valid = if context.my_vote.is_some() && context.votes.contains(context.my_vote.as_ref().unwrap()) { 
+          let _valid = if context.my_vote.is_some() && context.votes.contains(context.my_vote.as_ref().unwrap()) { 
 
             // print global vote result
             println!("Find my vote and received all votes!!!!!");
@@ -472,11 +484,11 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
     // filters :
     match req.get_inner_command() {
       &MainKVStoreCommand::Store(KVStoreCommand::Store(_,ref vals)) => for v in vals.iter() {
-        if let Some(r) = self.vote_impl(v,is_local)? {
+        if let Some(r) = self.vote_impl(v,is_local,None)? {
           return Ok(r);
         }
       },
-      &MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(ref v,..)) => if let Some(r) = self.vote_impl(v,is_local)? {
+      &MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(ref v,..)) => if let Some(r) = self.vote_impl(v,is_local,None)? {
         return Ok(r);
       },
       _ => (),
@@ -511,7 +523,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
       // share enveloppe anonymously (store + query all)
       //TODO run with reply ?? or do another store after a triggered timer (required to create
       //mainloop timer (cf already needed to maintain pool)
-      let c_store_env = GlobalTunnelCommand::Inner(AnoServiceICommand(StoreAnoMsg::STORE_ENVELOPE(envelope)));
+      let c_store_env = GlobalTunnelCommand::Inner(AnoServiceICommand(StoreAnoMsg::STOREENVELOPE(envelope)));
       let command = ApiCommand::call_service(c_store_env);
       self.ano_dhtin.send(command)?;
 
@@ -530,7 +542,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
             Some(commands) => {
               let mut res = Vec::new();
               for (is_local,command) in commands.into_iter() {
-                if let Some(r) = self.vote_impl(&command,is_local)? {
+                if let Some(r) = self.vote_impl(&command,is_local,Some(&peer))? {
                   res.push(r)
                 }
               }
@@ -574,6 +586,7 @@ fn to_main_reply<P : Peer>(rep : GlobalReply<P,ArcRef<P>,KVStoreCommand<P,ArcRef
     GlobalReply::PeerApi(a) => GlobalReply::PeerApi(a),
     GlobalReply::MainLoop(a) => GlobalReply::MainLoop(a),
     GlobalReply::PeerStore(a) => GlobalReply::PeerStore(a),
+    GlobalReply::GlobalSendPeer(a) => GlobalReply::GlobalSendPeer(a),
     GlobalReply::NoRep => GlobalReply::NoRep,
     GlobalReply::Mult(m) => GlobalReply::Mult(m.into_iter().map(|kvc|to_main_reply(kvc)).collect()),
   }
