@@ -305,7 +305,7 @@ pub struct StriplePeer<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKin
   id : Vec<u8>,
   from : Vec<u8>,
   sig : Vec<u8>,
-  secaddress : B,
+  pub secaddress : B,
 
   //#[serde(skip_serializing,deserialize_with="init_content")]
   #[serde(skip_serializing,skip_deserializing)]

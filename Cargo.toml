@@ -30,6 +30,10 @@ serde_json = "~1.0.2"
 rust-base58 = "*"
 sized_windows_lim = {  git = "https://github.com/cheme/readwrite-comp.git" }
 
+igd = "~0.7.0"
+libc = "~0.2"
+ipnetwork = "~0.12.7"
+
 [dependencies.serde_derive]
 git = "https://github.com/cheme/serde.git"
 

@@ -16,6 +16,36 @@ extern crate serde;
 extern crate serde_json;
 extern crate mydht_bincode;
 
+
+
+extern crate igd;
+
+#[cfg(not(windows))]
+extern crate libc;
+
+#[cfg(not(windows))]
+extern crate ipnetwork;
+#[cfg(not(windows))]
+use self::libc::{
+  getifaddrs,
+  freeifaddrs,
+  ifaddrs,
+  sockaddr,
+  sockaddr_in,
+  AF_INET,
+};
+#[cfg(not(windows))]
+use self::ipnetwork::{
+  ip_mask_to_prefix,
+  Ipv4Network,
+};
+#[cfg(not(windows))]
+use std::net::{IpAddr};
+
+#[cfg(not(windows))]
+use std::mem;
+#[cfg(not(windows))]
+use std::ptr;
 use mydht::rules::DHTRules; 
 use striple::anystriple::{
   Rsa2048Sha512,
@@ -33,6 +63,7 @@ use mydht::{
   QueryConf,
   QueryMode,
   MCReply,
+  utils,
 };
 use mydht::service::{
   MpscChannel,
@@ -173,7 +204,11 @@ pub struct VoteConf {
   pub me : ArcRef<RSAPeer>,
   /// Transport to use
   pub tcptimeout : i64,
+  #[serde(default = "default_nat")]
+  /// behind nat try to use igd for non local network
+  pub nat : bool,
 }
+
 /*
 impl<T : Serialize> Serialize for ArcRef<T> {
   fn serialize<S : Serializer>(&self, serializer: S) -> StdResult<S::Ok, S::Error> {
@@ -201,6 +236,7 @@ fn new_vote_conf (stdin : &mut StdinLock, path : &Path) -> IoResult<VoteConf> {
     let fsconf2 = VoteConf {
       me : m,
       tcptimeout : 4,
+      nat : false,
     };
 
     json::to_writer(&mut tmp_file,&fsconf2).unwrap();
@@ -258,6 +294,38 @@ fn main() {
     },
   };
 
+  let (opubnat, oanonat) = if fsconf.nat {
+    let mut local_ip = Ipv4Addr::new(0,0,0,0);
+    let gateway = igd::search_gateway_timeout(Duration::from_secs(5)).unwrap();
+    let pub_ip = gateway.get_external_ip().unwrap();
+    if let Some(a) = ip_addr_for_gateway(gateway.addr.ip()) {
+      local_ip = a;
+    }
+    let (port1,port2) = {
+      let m : &RSAPeer = fsconf.me.borrow();
+      (m.inner.get_address().0.port(),
+        m.get_sec_address().0.port())
+    };
+    //let pub_port1 = gateway.add_any_port(igd::PortMappingProtocol::TCP, SocketAddrV4::new(local_ip.clone(), port1), 0, "Voting machine upnp public").unwrap();
+    //let pub_port2 = gateway.add_any_port(igd::PortMappingProtocol::TCP, SocketAddrV4::new(local_ip.clone(), port2), 0, "Voting machine upnp ano").unwrap();
+
+    let pub_port1 = gateway.add_port(igd::PortMappingProtocol::TCP,port1, SocketAddrV4::new(local_ip.clone(), port1), 0, "Voting machine upnp public").unwrap();
+    let pub_port2 = gateway.add_port(igd::PortMappingProtocol::TCP,port2, SocketAddrV4::new(local_ip.clone(), port2), 0, "Voting machine upnp ano").unwrap();
+    //let d1 = SerSocketAddr(utils::sa4(pub_ip.clone(), pub_port1));
+    //let d2 = SerSocketAddr(utils::sa4(pub_ip.clone(), pub_port2));
+ 
+    let d1 = SerSocketAddr(utils::sa4(pub_ip.clone(), port1));
+    let d2 = SerSocketAddr(utils::sa4(pub_ip.clone(), port2));
+    let m : &RSAPeer = fsconf.me.borrow();
+    let mut newPeer = m.clone();
+    newPeer.secaddress = d2;
+    newPeer.inner.address = d1;
+    (Some(SerSocketAddr(utils::sa4(local_ip.clone(), port1))),
+      Some(SerSocketAddr(utils::sa4(local_ip.clone(), port2))))
+  } else {
+    (None,None)
+  };
+
   let tcptimeout = &fsconf.tcptimeout;
   info!("my conf is : {:?}" , fsconf);
   
@@ -290,7 +358,7 @@ fn main() {
   let main_tcp_transport = {
     let m : &RSAPeer = fsconf.me.borrow();
     Tcp::new(
-      m.inner.get_address(),
+      opubnat.as_ref().unwrap_or(m.inner.get_address()),
       Some(Duration::from_secs(5)), // timeout
       true,//mult
     ).unwrap()
@@ -299,7 +367,7 @@ fn main() {
   let ano_tcp_transport = {
     let m = AnoPeer(fsconf.me.clone());
     Tcp::new(
-      m.get_address(),
+      oanonat.as_ref().unwrap_or(m.get_address()),
       Some(Duration::from_secs(5)), // timeout
       true,//mult
     ).unwrap()
@@ -480,4 +548,55 @@ fn find_peer(main_in : &mut DHTIn<MainDHTConf>,me : &ArcRef<RSAPeer>, peer_id : 
     None
   };
   Ok(result.unwrap())
+}
+
+
+
+
+#[cfg(windows)]
+fn ip_addr_for_gateway (_gateway : &Ipv4Addr) -> Option<Ipv4Addr> {
+  None
+}
+// dirty select (should use something from a designated crate)
+#[cfg(not(windows))]
+fn ip_addr_for_gateway (gateway : &Ipv4Addr) -> Option<Ipv4Addr> {
+  let mut matches = 0;
+  let mut res = None;
+
+  let mut addresses: *mut ifaddrs = unsafe { mem::zeroed() };
+  if unsafe { getifaddrs(&mut addresses as *mut _) } != 0 {
+    return None;
+	}
+  let mut p_address: *mut ifaddrs = addresses;
+  while p_address != ptr::null_mut() {
+    let add = unsafe { *(*p_address).ifa_addr };
+    if add.sa_family as i32 == AF_INET {
+      let mask = unsafe { *(*p_address).ifa_netmask }.sa_data;
+      let prefix = ip_mask_to_prefix(IpAddr::V4(Ipv4Addr::new(
+            mask[2] as u8,
+            mask[3] as u8,
+            mask[4] as u8,
+            mask[5] as u8,
+      ))).unwrap();
+      let add = add.sa_data;
+      // may want to cast to sock_addr_in for possible different layout
+      let address = Ipv4Addr::new(
+            add[2] as u8,
+            add[3] as u8,
+            add[4] as u8,
+            add[5] as u8,
+      );
+      if Ipv4Network::new(gateway.clone(),prefix).unwrap().network() == 
+         Ipv4Network::new(address.clone(),prefix).unwrap().network() {
+           res = Some(address);
+           break;
+      }
+    }
+  	p_address = unsafe { (*p_address).ifa_next };
+	}
+	unsafe { freeifaddrs(addresses) };
+  res
+}
+fn default_nat () -> bool {
+  false
 }
