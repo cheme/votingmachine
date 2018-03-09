@@ -298,16 +298,30 @@ impl Eq for VoteDesc { }
 //---------------------------Envelope--------------------------------
 
 #[derive(Debug,Serialize,Deserialize,Clone)]
+#[serde(finish_deserialize = "init_content_envelope")]
 /// pair key over id and vote id
 pub struct Envelope {
   /// envelope id aka derived public key
   id : Vec<u8>,
   publickey : Vec<u8>,
+  pub commitment : Vec<u8>,
   /// vote id
   pub votekey : Vec<u8>,
   /// sign by VoteDesc privatekey
   sign : Vec<u8>,
+  #[serde(skip_serializing,skip_deserializing)]
+  /// obviously wrong, striple lib need some refacto to avoid such a buffer
+  /// (or allow bcont as bytes producer (meaning Read) from self)
+  content : Option<BCont<'static>>,
 }
+
+#[inline]
+fn init_content_envelope<E>(mut vote : Envelope) -> Result<Envelope,E> {
+  vote.init_content();
+  Ok(vote)
+  // could not check as signature is not static (might require to search for peer)
+}
+
 
 
 impl PartialEq for Envelope {
@@ -344,21 +358,28 @@ impl KeyVal for Envelope {
 impl Envelope {
   pub fn new (
     vote_desc : &VoteDesc,
+    commitment : Vec<u8>,
     ) -> MResult<(Self,Vec<u8>)> {
 
     let (vkey,pkey) = <<<Envelope as StripleImpl>::Kind as StripleKind>::S as SignatureScheme>::new_keypair().map_err(|e|StripleMydhtErr(e))?;
 
     let mut envelope = Envelope {
       id: Vec::new(),
-      publickey: vkey, 
+      publickey: vkey,
+      commitment,
       votekey: Vec::new(), // init in calc_init
       sign: Vec::new(),
+      content: None,
     };
+    envelope.init_content();
 
     envelope.calc_init(vote_desc).map_err(|e|StripleMydhtErr(e))?;
     Ok((envelope,pkey))
   }
- 
+  fn init_content(&mut self) {
+    self.content = Some(BCont::OwnedBytes(self.commitment.clone()));
+  }
+
 }
 //---------------------- Participation
 #[derive(Debug,Serialize,Deserialize,Clone)]
@@ -472,7 +493,8 @@ pub struct Vote {
   /// vote id (not that usefull (already in envelope))
   pub vote_id : Vec<u8>,
   /// actual reply to vote
-  reply : String,
+  pub reply : String,
+  pub commitment_nonce : Vec<u8>,
   pkey : Vec<u8>,
   /// sign of reply with envelope key
   sign : Vec<u8>,
@@ -525,7 +547,8 @@ impl Vote {
   pub fn new (
     owned_envelope : &(&Envelope,&[u8]),
     vote_desc : &VoteDesc,
-    value : String) -> MResult<Self> {
+    value : String,
+    commitment_nonce : Vec<u8>) -> MResult<Self> {
 
     let (pkey,_) = <<<Vote as StripleImpl>::Kind as StripleKind>::S as SignatureScheme>::new_keypair().map_err(|e|StripleMydhtErr(e))?;
     let mut vote = Vote {
@@ -536,6 +559,7 @@ impl Vote {
       sign : Vec::new(),
       vote_id : vote_desc.get_id().to_vec(),
       reply : value,
+      commitment_nonce,
     };
     vote.init_content();
     vote.calc_init(owned_envelope).map_err(|e|StripleMydhtErr(e))?;
@@ -543,12 +567,21 @@ impl Vote {
   }
   #[inline]
   fn init_content(&mut self) {
-    self.content = Some(BCont::OwnedBytes(self.reply.clone().into_bytes()));
+    let mut dest = Cursor::new(Vec::new());
+    bincode::serialize_into(&mut dest, &VoteStripleContent {
+      reply : &self.reply,
+      commitment_nonce : &self.commitment_nonce,
+    }, bincode::Infinite).unwrap();
+    self.content = Some(BCont::OwnedBytes(dest.into_inner()));
   }
 }
 
-
-
+#[derive(Debug,Serialize)]
+pub struct VoteStripleContent<'a> {
+  pub reply  : &'a String,
+  pub commitment_nonce  : &'a Vec<u8>,
+}
+ 
 //------------------------
 /// might not be send it is local info, but serialize to keep history : yes
 /// TODO useless : correspond to VoteDesc but at final state

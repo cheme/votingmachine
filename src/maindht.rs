@@ -2,6 +2,11 @@
 use anodht::{
   AnoAddress,
 };
+use rand::{
+  OsRng,
+};
+
+
 use std::collections::{
   VecDeque,
   BTreeMap,
@@ -522,6 +527,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
       votes : BTreeMap::new(),
       me_sign_key : pk,
       waiting_user : BTreeMap::new(),
+      rng : OsRng::new()?,
     })
   }
 

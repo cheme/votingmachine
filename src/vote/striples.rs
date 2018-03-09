@@ -531,7 +531,7 @@ impl StripleFieldsIf for Envelope {
   }
   // TODO change striple interface to allow calculate each time
   fn get_content<'a>(&'a self) -> Option<&'a BCont<'a>> {
-    None
+    self.content.as_ref()
   }
 
   fn get_content_ids(&self) -> Vec<&[u8]> {

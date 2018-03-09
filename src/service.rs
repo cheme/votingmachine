@@ -7,7 +7,9 @@ use mydht_tunnel::{
 use striple::striple::{
   StripleIf,
   StripleFieldsIf,
+  IDDerivation,
 };
+use striple::keyder::SHA512KD;
 use vote::striples::{
   StripleMydhtErr,
 };
@@ -34,7 +36,10 @@ use maindht::{
   MainKVStoreCommand,
 };
 
-
+use rand::{
+  Rng,
+  OsRng,
+};
 
 use mydht::dhtimpl::{
   SimpleRules,
@@ -85,6 +90,8 @@ use mydht::{
   FWConf,
 };
 
+type COMMIT_HASH = SHA512KD;
+
 pub struct VotingService<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>,RP,PM : PeerMgmtMeths<P>> 
   {
   pub store_service : KVStoreService<
@@ -100,6 +107,7 @@ pub struct VotingService<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoA
   pub votes : BTreeMap<Vec<u8>,VoteContext<RP>>,
   pub waiting_user : BTreeMap<Vec<u8>,Vec<(bool,MainStoreKVRef)>>,
   pub me_sign_key : Vec<u8>,
+  pub rng : OsRng,
 }
 // TODO change mydht error to contain static &[u8] and list of objects to format!!!
 //const no_vote_context : Error = Error("no vote context".to_string(),ErrorKind::ExpectedError,None);
@@ -115,6 +123,8 @@ fn no_envelope_context() -> Error {
 
 pub struct VoteContext<RP> {
   pub vote_desc : VoteDesc,
+  pub max_rep_length : usize,
+  pub my_commit_nonce : Vec<u8>,
   pub my_reply : String,
   pub my_envelope : Envelope,
   pub my_envelope_priv_key : Vec<u8>,
@@ -384,7 +394,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
        
 
                     // make vote (sign by enveloppe, about votedesc)
-                    let vote = Vote::new(&(&context.my_envelope,&context.my_envelope_priv_key), &context.vote_desc, context.my_reply.clone())?;
+                    let vote = Vote::new(&(&context.my_envelope,&context.my_envelope_priv_key), &context.vote_desc, context.my_reply.clone(), context.my_commit_nonce.clone())?;
                     // TODO remove : only for testing
                     assert!(vote.check(&context.my_envelope).map_err(|e|StripleMydhtErr(e))?);
 
@@ -431,7 +441,8 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
             return Ok(Some(GlobalReply::NoRep));
           }
         }
-        let valid_vote = vote.check(&context.envelopes[env_pos].0).map_err(|e|StripleMydhtErr(e))?;
+        let is_commit_ok = context.envelopes[env_pos].0.commitment == Self::commit_reply(&vote.reply,&vote.commitment_nonce[..])?;
+        let valid_vote = is_commit_ok && vote.check(&context.envelopes[env_pos].0).map_err(|e|StripleMydhtErr(e))?;
         if valid_vote {
           context.envelopes[env_pos].1 = true;
           context.votes.push(vote.clone());
@@ -469,6 +480,27 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
     Ok(None)
   }
 
+  fn commit_nonce(&mut self, max_rep_length : usize) -> Result<Vec<u8>> {
+    let h_size = <COMMIT_HASH as IDDerivation>::EXPECTED_SIZE.unwrap_or(max_rep_length - 1);
+    let noncesize = (max_rep_length / h_size + 1) * h_size;
+    let mut nonce = vec![0;noncesize];
+    self.rng.fill_bytes(&mut nonce[..]);
+ 
+    Ok(nonce)
+  }
+  // using IDDer to avoid including additional dependancy for hash
+  fn commit_reply(reply : &String, nonce : &[u8]) -> Result<Vec<u8>> {
+    let repbyte = reply.clone().into_bytes();
+    let mut buf_nonce = nonce.to_vec();
+    // inefficient xor
+    for (i,b) in repbyte.into_iter().enumerate() {
+      buf_nonce[i] ^= b;
+    }
+
+    let com = COMMIT_HASH::derive_id(&buf_nonce[..]).map_err(|e|StripleMydhtErr(e))?;
+
+    Ok(com)
+  }
 }
 
 impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>,PM : PeerMgmtMeths<P>> Service for VotingService<P,ArcRef<P>,PM>
@@ -496,12 +528,17 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
     // TODO switch to map and move some code from vote_impl
     let command_out =
     if let GlobalCommand::Local(MainKVStoreCommand::Vote(vote_desc,my_reply)) = req {
+       let max_rep_length = vote_desc.replies.iter().fold(0, |ml,rep| if rep.len() > ml { rep.len() } else { ml });
+       let my_commit_nonce = self.commit_nonce(max_rep_length)?;
+       let my_commitment = Self::commit_reply(&my_reply, &my_commit_nonce[..])?;
        // keep localy envelope with pk (pk not serialized through serde so vec null is send).
-       let (envelope,my_envelope_priv_key) = Envelope::new(&vote_desc)?;
+       let (envelope,my_envelope_priv_key) = Envelope::new(&vote_desc, my_commitment)?;
        let votedesc_id = vote_desc.get_id().to_vec();
        let nb_invit = vote_desc.nb_invit();
        let context = VoteContext {
          vote_desc : vote_desc,
+         max_rep_length,
+         my_commit_nonce,
          my_envelope : envelope.clone(),
          my_envelope_priv_key,
          my_reply,
@@ -591,5 +628,4 @@ fn to_main_reply<P : Peer>(rep : GlobalReply<P,ArcRef<P>,KVStoreCommand<P,ArcRef
     GlobalReply::Mult(m) => GlobalReply::Mult(m.into_iter().map(|kvc|to_main_reply(kvc)).collect()),
   }
 }
-
 
