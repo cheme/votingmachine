@@ -90,7 +90,7 @@ use mydht::{
   FWConf,
 };
 
-type COMMIT_HASH = SHA512KD;
+type COMMITHASH = SHA512KD;
 
 pub struct VotingService<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = SerSocketAddr>,RP,PM : PeerMgmtMeths<P>> 
   {
@@ -130,6 +130,7 @@ pub struct VoteContext<RP> {
   pub my_envelope_priv_key : Vec<u8>,
   pub envelopes : Vec<(Envelope,bool)>,
   pub my_participation : Option<Participation>,
+  pub participation_env_tocheck : Vec<Participation>,
   pub my_vote : Option<Vote>,
   pub votes : Vec<Vote>,
   pub votant_ctx : BTreeMap<Vec<u8>, UserContext<RP>>,
@@ -288,6 +289,12 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
 
               // TODO refacto MainStoreKVRef to store a participation ref instead, probably need https://github.com/rust-lang/rust/pull/46706
               let send_part = ArcRef::new(MainStoreKV::Participation(participation.clone()));
+              for p in context.participation_env_tocheck.iter() {
+                if !p.same_envelopes(&participation) {
+                  panic!("My participation with different envelope than other striple checked participation");
+                }
+              }
+              context.participation_env_tocheck.clear();
               context.my_participation = Some(participation.clone());
               {
                 // TODO move in a votant context function
@@ -388,6 +395,16 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
               if add {
                 from.participation = Some(participation.clone());
                 if participation.is_valid {
+                  match context.my_participation.as_ref() {
+                    Some(mp) => {
+                      if !mp.same_envelopes(participation) {
+                        panic!("receive participation with different envelope than mine");
+                      }
+                    },
+                    None => {
+                      context.participation_env_tocheck.push(participation.clone()); // TODO should only store user id
+                    },
+                  }
                   context.participation_ok += 1;
                   println!("part ++ -/> {}",context.participation_ok);
                   if context.participation_ok == context.vote_desc.invitations.len() {
@@ -481,7 +498,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
   }
 
   fn commit_nonce(&mut self, max_rep_length : usize) -> Result<Vec<u8>> {
-    let h_size = <COMMIT_HASH as IDDerivation>::EXPECTED_SIZE.unwrap_or(max_rep_length - 1);
+    let h_size = <COMMITHASH as IDDerivation>::EXPECTED_SIZE.unwrap_or(max_rep_length - 1);
     let noncesize = (max_rep_length / h_size + 1) * h_size;
     let mut nonce = vec![0;noncesize];
     self.rng.fill_bytes(&mut nonce[..]);
@@ -497,7 +514,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
       buf_nonce[i] ^= b;
     }
 
-    let com = COMMIT_HASH::derive_id(&buf_nonce[..]).map_err(|e|StripleMydhtErr(e))?;
+    let com = COMMITHASH::derive_id(&buf_nonce[..]).map_err(|e|StripleMydhtErr(e))?;
 
     Ok(com)
   }
@@ -545,6 +562,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
          envelopes : Vec::with_capacity(nb_invit),
          votes : Vec::with_capacity(nb_invit),
          my_participation : None,
+         participation_env_tocheck : Vec::new(),
          my_vote : None,
          votant_ctx : BTreeMap::new(),
          participation_ok : 0,

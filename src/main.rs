@@ -317,9 +317,9 @@ fn main() {
     let d1 = SerSocketAddr(utils::sa4(pub_ip.clone(), port1));
     let d2 = SerSocketAddr(utils::sa4(pub_ip.clone(), port2));
     let m : &RSAPeer = fsconf.me.borrow();
-    let mut newPeer = m.clone();
-    newPeer.secaddress = d2;
-    newPeer.inner.address = d1;
+    let mut new_peer = m.clone();
+    new_peer.secaddress = d2;
+    new_peer.inner.address = d1;
     (Some(SerSocketAddr(utils::sa4(local_ip.clone(), port1))),
       Some(SerSocketAddr(utils::sa4(local_ip.clone(), port2))))
   } else {

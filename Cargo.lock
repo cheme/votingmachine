@@ -795,6 +795,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "striple"
 version = "0.0.1"
+source = "git+https://github.com/cheme/rust-striple.git?branch=redesign#500d6b04c0c7e16971ec73cc1b1993d2dfa7375a"
 dependencies = [
  "base64 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -990,7 +991,7 @@ dependencies = [
  "serde_derive 1.0.23 (git+https://github.com/cheme/serde.git)",
  "serde_json 1.0.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "sized_windows_lim 0.0.1 (git+https://github.com/cheme/readwrite-comp.git)",
- "striple 0.0.1",
+ "striple 0.0.1 (git+https://github.com/cheme/rust-striple.git?branch=redesign)",
  "time 0.1.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "uuid 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1132,6 +1133,7 @@ dependencies = [
 "checksum slab 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fdeff4cd9ecff59ec7e3744cbca73dfe5ac35c2aedb2cfba8a1c715a18912e9d"
 "checksum smallvec 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "44db0ecb22921ef790d17ae13a3f6d15784183ff5f2a01aa32098c7498d2b4b9"
 "checksum stable_deref_trait 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "15132e0e364248108c5e2c02e3ab539be8d6f5d52a01ca9bbf27ed657316f02b"
+"checksum striple 0.0.1 (git+https://github.com/cheme/rust-striple.git?branch=redesign)" = "<none>"
 "checksum syn 0.11.11 (registry+https://github.com/rust-lang/crates.io-index)" = "d3b891b9015c88c576343b9b3e41c2c11a51c219ef067b264bd9c8aa9b441dad"
 "checksum synom 0.11.3 (registry+https://github.com/rust-lang/crates.io-index)" = "a393066ed9010ebaed60b9eafa373d4b1baac186dd7e008555b0f702b51945b6"
 "checksum thread_local 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "279ef31c19ededf577bfd12dfae728040a21f635b06a24cd670ff510edd38963"
