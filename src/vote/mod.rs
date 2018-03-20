@@ -453,7 +453,8 @@ impl Participation {
     envelopes : &[(Envelope,bool)],
     is_valid : bool) -> MResult<Self> {
 
-    let envelopes = envelopes.iter().map(|e|e.0.get_id().to_vec()).collect();
+    let mut envelopes : Vec<Vec<u8>> = envelopes.iter().map(|e|e.0.get_id().to_vec()).collect();
+    envelopes.sort();
 
     let (pkey,_) = <<<Participation as StripleImpl>::Kind as StripleKind>::S as SignatureScheme>::new_keypair().map_err(|e|StripleMydhtErr(e))?;
     let mut participation = Participation {
@@ -470,14 +471,31 @@ impl Participation {
     participation.calc_init(user).map_err(|e|StripleMydhtErr(e))?;
     Ok(participation)
   }
+  #[inline]
   fn init_content(&mut self) {
-    // should use bincode encoding (depends of from definition)
-    let v : u8 = if self.is_valid { 1 } else { 0 };
-    self.content = Some(BCont::OwnedBytes(vec![v]));
+    let mut dest = Cursor::new(Vec::new());
+    bincode::serialize_into(&mut dest, &ParticipationStripleContent {
+      is_valid : self.is_valid,
+      envelopes : &self.envelopes,
+    }, bincode::Infinite).unwrap();
+    self.content = Some(BCont::OwnedBytes(dest.into_inner()));
+  }
+
+  pub fn same_envelopes(&self, p : &Participation) -> bool {
+    // inefficient method : should use merkle tree root of envelopes instead
+    // Similarily all envelopes should not be in content of striple but only the merkle root value
+    // note that it is sorted from the constructor
+    self.envelopes == p.envelopes
   }
 }
 
 
+#[derive(Debug,Serialize)]
+pub struct ParticipationStripleContent<'a> {
+  pub is_valid : bool,
+  pub envelopes : &'a Vec<Vec<u8>>,
+}
+ 
 
 
 //------------------------ Vote
