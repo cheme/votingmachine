@@ -17,7 +17,7 @@ extern crate serde_json;
 extern crate mydht_bincode;
 
 
-
+extern crate mio;
 extern crate igd;
 
 #[cfg(not(windows))]
@@ -69,6 +69,9 @@ use mydht::service::{
   MpscChannel,
   MioChannel,
   SpawnChannel,
+  MioEvented,
+  MioRecv,
+  MioSend,
 };
  
 use mydht_tunnel::{
@@ -96,6 +99,11 @@ use mydht::peer::{
 use mydht::api::{
   DHTIn,
 };
+use self::mio::{
+  Registration,
+};
+
+
 use std::time::Duration;
 use mydht_bincode::Bincode;
 use std::borrow::Borrow;
@@ -117,8 +125,8 @@ use std::net::SocketAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 use mydht::keyval::KeyVal;
+use mydht::transportif::SerSocketAddr;
 use mydht::utils::{
-  SerSocketAddr,
   OneResult,
   new_oneresult,
   replace_wait_one_result,
@@ -373,12 +381,21 @@ fn main() {
     ).unwrap()
   };
 
-  // warning MpscChannel is same as init_main_loop_channel_in result
-  let (ano_s,ano_r) = MioChannel(MpscChannel).new().unwrap();
+  let (ano_s,ano_r) = MpscChannel.new().unwrap();
 
+  let (reg,tr) = Registration::new2();
+  let ano_r = MioRecv {
+    mpsc : ano_r,
+    reg : MioEvented(reg),
+  };
+  let ano_s = MioSend {
+    mpsc : ano_s,
+    set_ready : tr,
+  };
   let mut anosendcommand = DHTIn {
     main_loop : ano_s.clone()
   };
+
 
   let conf = MainDHTConfC {
     me : fsconf.me.clone(),

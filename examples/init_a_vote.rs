@@ -70,7 +70,7 @@ use std::net::SocketAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 use mydht::keyval::KeyVal;
-use mydht::utils::SerSocketAddr;
+use mydht::transportif::SerSocketAddr;
 use std::path::{Path,PathBuf};
 use mydht_openssl::rsa_openssl::{
   RSAPeer as RSAPeerC,

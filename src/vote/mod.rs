@@ -11,16 +11,16 @@ use striple::striple::{
   OwnedStripleIf,
   BCont,
 };
-
+use std::time::{
+  Duration,
+  SystemTime,
+  UNIX_EPOCH,
+};
 use striple::striple::{
   InstantiableStripleImpl,
   StripleImpl,
   StripleKind,
   SignatureScheme,
-};
-use time::{
-  self,
-  Duration,
 };
 
 use mydht::dhtif::{
@@ -613,15 +613,15 @@ pub struct SubVote {
   subparticipant : Vec<Vec<u8>>, // key to peer TODO parameterized
 }
 // TODO param this later
-const envelope_duration_s : i64 = 2;
+const envelope_duration_s : u64 = 2;
 // no participation impl (only synch of getting the voteconf)
-const participation_duration_s : i64 = 1;
-const vote_duration_s : i64 = 2;
+const participation_duration_s : u64 = 1;
+const vote_duration_s : u64 = 2;
 pub fn get_new_vote_times () -> (TimeSpecExt,TimeSpecExt,TimeSpecExt) {
-  let now = time::get_time();
-  let e = Duration::seconds(envelope_duration_s);
-  let p = Duration::seconds(participation_duration_s);
-  let v = Duration::seconds(vote_duration_s);
+  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+  let e = Duration::from_secs(envelope_duration_s);
+  let p = Duration::from_secs(participation_duration_s);
+  let v = Duration::from_secs(vote_duration_s);
   (
     TimeSpecExt(now + p),
     TimeSpecExt(now + p + e),

@@ -17,7 +17,6 @@ path = "examples/init_a_vote.rs"
 
 [dependencies]
 
-time = "~0.1.33"
 log = "~0.3.4"
 lazy_static = "~0.2.8"
 env_logger = "~0.4.3"
@@ -29,7 +28,7 @@ serde = "~1.0.10"
 serde_json = "~1.0.2"
 rust-base58 = "*"
 sized_windows_lim = {  git = "https://github.com/cheme/readwrite-comp.git" }
-
+mio = "~0.6.10"
 igd = "~0.7.0"
 libc = "~0.2"
 ipnetwork = "~0.12.7"

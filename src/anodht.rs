@@ -5,6 +5,12 @@ use striple::striple::{
   StripleIf,
 };
 
+use mio::{
+  Poll as MioPoll,
+  SetReadiness,
+  Registration,
+};
+
 use maindht::{
   MainDHTConf,
   MainKVStoreCommand,
@@ -54,6 +60,7 @@ use mydht::service::{
   SpawnChannel,
   SpawnSend,
   MioSend,
+  MioEvented,
 };
 use mydht::{
   GlobalCommand,
@@ -68,6 +75,8 @@ use mydht::kvstoreif::{
 };
 use mydht::transportif::{
   Transport,
+  SerSocketAddr,
+  MioEvents,
 };
 use mydht::dhtimpl::{
   SimpleRules,
@@ -85,7 +94,6 @@ use mydht::utils::{
   OptFrom,
   ArcRef,
   CloneRef,
-  SerSocketAddr,
   Proto,
 };
 use mydht::{
@@ -255,13 +263,20 @@ impl<
 {
   const INIT_ROUTE_LENGTH : usize = 4;
   const INIT_ROUTE_BIAS : usize = 0;
+
+  type Events = MioEvents;
+  type Poll = MioPoll;
+  type PollTReady = SetReadiness;
+  type PollReg = MioEvented<Registration>;
+
+
   type PeerKey = <Self::Peer as KeyVal>::Key;
   type Peer = AnoPeer<P>;
   type PeerRef = CloneRef<AnoPeer<P>>;
   type InnerCommand = AnoServiceICommand;
   type InnerReply = AnoServiceIReply;
   type InnerService = AnoService<Self,MainDHTConf<P,PM>>;
-  type InnerServiceProto = MioSend<MLSend<MainDHTConf<P,PM>>>;
+  type InnerServiceProto = MioSend<MLSend<MainDHTConf<P,PM>>,Self::PollTReady>;
   type Transport = Tcp;
   type TransportAddress = SerSocketAddr;
   type MsgEnc = Bincode;
@@ -288,9 +303,22 @@ impl<
 
   type CacheSSW = HashMap<Vec<u8>,SSWCache<Self>>;
   type CacheSSR = HashMap<Vec<u8>,SSRCache<Self>>;
-  type CacheErW = HashMap<Vec<u8>,(ErrorWriter,<Self::Transport as Transport>::Address)>;
+  type CacheErW = HashMap<Vec<u8>,(ErrorWriter,<Self::Transport as Transport<Self::Poll>>::Address)>;
   type CacheErR = HashMap<Vec<u8>,Vec<MultipleErrorInfo>>;
- 
+
+
+
+
+  fn init_poll(&mut self) -> Result<Self::Poll> {
+    Ok(MioPoll::new()?)
+  }
+
+  fn poll_reg() -> Result<(Self::PollTReady,Self::PollReg)> {
+    let (reg,sr) = Registration::new2();
+    Ok((sr,MioEvented(reg)))
+  }
+
+
   fn init_ref_peer(&mut self) -> Result<Self::PeerRef> {
     Ok(CloneRef::new(AnoPeer(self.conf.me.clone())))
   }

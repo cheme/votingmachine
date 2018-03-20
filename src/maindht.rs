@@ -6,6 +6,11 @@ use rand::{
   OsRng,
 };
 
+use mio::{
+  Poll as MioPoll,
+  SetReadiness,
+  Registration,
+};
 
 use std::collections::{
   VecDeque,
@@ -38,6 +43,8 @@ use mydht::kvstoreif::{
 };
 use mydht::transportif::{
   Transport,
+  SerSocketAddr,
+  MioEvents,
 };
 use mydht::dhtimpl::{
   DhtRules,
@@ -60,7 +67,6 @@ use mydht::utils::{
   OptFrom,
   ArcRef,
   OneResult,
-  SerSocketAddr,
   Proto,
 };
 use mydht::{
@@ -98,6 +104,7 @@ use mydht::service::{
   NoService,
   NoSpawn,
   NoChannel,
+  MioEvented,
 };
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -162,7 +169,7 @@ impl<
   PM : PeerMgmtMeths<P>,
   > RegReaderBorrow<MainDHTConf<P,PM>> for MainKVStoreCommand<P> {
   #[inline]
-  fn get_read(&self) -> Option<&<<MainDHTConf<P,PM> as MyDHTConf>::Transport as Transport>::ReadStream> {
+  fn get_read(&self) -> Option<&<<MainDHTConf<P,PM> as MyDHTConf>::Transport as Transport<<MainDHTConf<P,PM> as MyDHTConf>::Poll>>::ReadStream> {
     // warning should type match to get from kvstore command
     None
   }
@@ -324,6 +331,11 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
 {
   const SEND_NB_ITER : usize = 10;
 
+  type Events = MioEvents;
+  type Poll = MioPoll;
+  type PollTReady = SetReadiness;
+  type PollReg = MioEvented<Registration>;
+
   type MainloopSpawn = ThreadPark;
   type MainLoopChannelIn = MpscChannel;
   type MainLoopChannelOut = MpscChannel;
@@ -338,7 +350,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
 
   type PeerCache = InefficientmapBase2<Self::Peer, Self::PeerRef, PeerCacheEntry<Self::PeerRef>,
     HashMap<<Self::Peer as KeyVal>::Key,PeerCacheEntry<Self::PeerRef>>>;
-  type AddressCache = HashMap<<Self::Transport as Transport>::Address,AddressCacheEntry>;
+  type AddressCache = HashMap<<Self::Transport as Transport<Self::Poll>>::Address,AddressCacheEntry>;
   type ChallengeCache = HashMap<Vec<u8>,ChallengeEntry<Self>>;
   type PeerMgmtChannelIn = MpscChannel;
   type ReadChannelIn = MpscChannel;
@@ -378,6 +390,15 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
   type SynchConnectChannelIn = MpscChannel;
   type SynchConnectSpawn = ThreadPark;
 
+
+  fn init_poll(&mut self) -> Result<Self::Poll> {
+    Ok(MioPoll::new()?)
+  }
+
+  fn poll_reg() -> Result<(Self::PollTReady,Self::PollReg)> {
+    let (reg,sr) = Registration::new2();
+    Ok((sr,MioEvented(reg)))
+  }
 
   fn init_peer_kvstore(&mut self) -> Result<Box<Fn() -> Result<Self::PeerKVStore> + Send>> {
     let others = self.others.clone();

@@ -32,6 +32,11 @@ use anodht::{
 use mydht::api::{
   DHTIn,
 };
+
+use mydht::transportif::{
+  SerSocketAddr,
+};
+
 use maindht::{
   MainKVStoreCommand,
 };
@@ -56,7 +61,6 @@ use mydht::peer::{
 use mydht::utils::{
   ArcRef,
   Ref,
-  SerSocketAddr,
 };
 use mydht::service::{
   Service,
