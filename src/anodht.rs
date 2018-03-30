@@ -278,6 +278,8 @@ impl<
   type InnerService = AnoService<Self,MainDHTConf<P,PM>>;
   type InnerServiceProto = MioSend<MLSend<MainDHTConf<P,PM>>,Self::PollTReady>;
   type Transport = Tcp;
+  type RSSend = <Tcp as Transport<MioPoll>>::ReadStream;
+  type WSSend = <Tcp as Transport<MioPoll>>::WriteStream;
   type TransportAddress = SerSocketAddr;
   type MsgEnc = Bincode;
   type PeerMgmtMeths = AnoPeerMgmt<PM>;
