@@ -363,7 +363,7 @@ impl<
     Ok(AnoPeerMgmt(self.conf.peer_mgmt.clone()))
   }
 
-  fn init_dhtrules_proto(&mut self) -> Result<Self::DHTRules> {
+  fn init_dhtrules(&mut self) -> Result<Self::DHTRules> {
     Ok(self.conf.rules.clone())
   }
 
