@@ -98,13 +98,21 @@ use mydht::noservice::{
   NoCommandReply,
 };
 use mydht::service::{
-  ThreadPark,
-  MpscChannel,
-  NoSend,
-  NoService,
-  NoSpawn,
-  NoChannel,
-  MioEvented,
+  noservice::NoService,
+  spawn::{
+    threadpark::ThreadPark,
+    void::{
+      NoSpawn,
+    },
+  },
+  channels::{
+    mpsc::MpscChannel,
+    void::{
+      NoSend,
+      NoChannel,
+    },
+  },
+  eventloop::mio::MioEvented,
 };
 use std::hash::Hash;
 use std::marker::PhantomData;

@@ -66,12 +66,14 @@ use mydht::{
   utils,
 };
 use mydht::service::{
-  MpscChannel,
-  MioChannel,
+  channels::{
+    mpsc::MpscChannel,
+    MioRecv,
+    MioSend,
+    mio::MioChannel,
+  },
   SpawnChannel,
-  MioEvented,
-  MioRecv,
-  MioSend,
+  eventloop::mio::MioEvented,
 };
  
 use mydht_tunnel::{

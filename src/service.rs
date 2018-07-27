@@ -49,7 +49,9 @@ use rand::{
 use mydht::dhtimpl::{
   SimpleRules,
 };
-use mydht::mydhtresult::{
+use mydht::dhtif::{
+  LoopResult,
+  LoopError,
   Result,
   Error,
   ErrorKind,
@@ -117,11 +119,11 @@ pub struct VotingService<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoA
 //const no_vote_context : Error = Error("no vote context".to_string(),ErrorKind::ExpectedError,None);
 #[inline]
 fn no_vote_context() -> Error {
-  Error("no vote context".to_string(),ErrorKind::ExpectedError,None)
+  ErrorKind::ExpectedError.into()
 }
 #[inline]
 fn no_envelope_context() -> Error {
-  Error("no envolope context".to_string(),ErrorKind::ExpectedError,None)
+  ErrorKind::ExpectedError.into()
 }
 
 
@@ -531,17 +533,17 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
   type CommandIn = GlobalCommand<ArcRef<P>,MainKVStoreCommand<P>>;
   type CommandOut = GlobalReply<P,ArcRef<P>,MainKVStoreCommand<P>,KVStoreReply<MainStoreKVRef>>;
 
-  fn call<Y : SpawnerYield>(&mut self, req: Self::CommandIn, async_yield : &mut Y) -> Result<Self::CommandOut> {
+  fn call<Y : SpawnerYield>(&mut self, req: Self::CommandIn, async_yield : &mut Y) -> LoopResult<Self::CommandOut> {
 
     let is_local = req.is_local(); 
     // filters :
     match req.get_inner_command() {
       &MainKVStoreCommand::Store(KVStoreCommand::Store(_,ref vals)) => for v in vals.iter() {
-        if let Some(r) = self.vote_impl(v,is_local,None)? {
+        if let Some(r) = self.vote_impl(v,is_local,None).map_err::<LoopError,_>(|err|err.into())? {
           return Ok(r);
         }
       },
-      &MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(ref v,..)) => if let Some(r) = self.vote_impl(v,is_local,None)? {
+      &MainKVStoreCommand::Store(KVStoreCommand::StoreLocally(ref v,..)) => if let Some(r) = self.vote_impl(v,is_local,None).map_err::<LoopError,_>(|err|err.into())? {
         return Ok(r);
       },
       _ => (),
@@ -550,10 +552,10 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
     let command_out =
     if let GlobalCommand::Local(MainKVStoreCommand::Vote(vote_desc,my_reply)) = req {
        let max_rep_length = vote_desc.replies.iter().fold(0, |ml,rep| if rep.len() > ml { rep.len() } else { ml });
-       let my_commit_nonce = self.commit_nonce(max_rep_length)?;
-       let my_commitment = Self::commit_reply(&my_reply, &my_commit_nonce[..])?;
+       let my_commit_nonce = self.commit_nonce(max_rep_length).map_err::<LoopError,_>(|err|err.into())?;
+       let my_commitment = Self::commit_reply(&my_reply, &my_commit_nonce[..]).map_err::<LoopError,_>(|err|err.into())?;
        // keep localy envelope with pk (pk not serialized through serde so vec null is send).
-       let (envelope,my_envelope_priv_key) = Envelope::new(&vote_desc, my_commitment)?;
+       let (envelope,my_envelope_priv_key) = Envelope::new(&vote_desc, my_commitment).map_err::<LoopError,_>(|err|err.into())?;
        let votedesc_id = vote_desc.get_id().to_vec();
        let nb_invit = vote_desc.nb_invit();
        let context = VoteContext {
@@ -601,7 +603,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
             Some(commands) => {
               let mut res = Vec::new();
               for (is_local,command) in commands.into_iter() {
-                if let Some(r) = self.vote_impl(&command,is_local,Some(&peer))? {
+                if let Some(r) = self.vote_impl(&command,is_local,Some(&peer)).map_err::<LoopError,_>(|err|err.into())? {
                   res.push(r)
                 }
               }

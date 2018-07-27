@@ -75,17 +75,16 @@ pub struct StripleMydhtErr(pub StripleError);
 impl From<StripleMydhtErr> for MError {
   #[inline]
   fn from(e : StripleMydhtErr) -> MError {
-    MError((e.0).0, MErrorKind::ExternalLib, (e.0).2)
+    MError::with_chain(e.0, MErrorKind::ExternalLib("mydht error".to_string()))
   }
 }
-pub struct GenErr<E : ErrorTrait>(E);
-// TODO move to mydht error lib
-impl<E : ErrorTrait> From<GenErr<E>> for MError {
+/*pub struct GenErr<E : ErrorTrait>(E);
+impl<E : ErrorTrait + Send> From<GenErr<E>> for MError {
   #[inline]
   fn from(e : GenErr<E>) -> MError {
-    MError(format!("{}, cause : {:?}",e.0.description(),e.0.cause()), MErrorKind::ExternalLib, None)
+    MError::with_chain(e.0, ErrorKind::ExternalLib("generic error trait error".to_string()))
   }
-}
+}*/
 
 
 
