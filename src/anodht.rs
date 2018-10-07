@@ -59,8 +59,10 @@ use mydht::service::{
   SpawnerYield,
   SpawnChannel,
   SpawnSend,
-  MioSend,
-  MioEvented,
+  channels::MioSend,
+  eventloop::{
+    mio::MioEvented,
+  },
 };
 use mydht::{
   GlobalCommand,
@@ -107,8 +109,9 @@ use mydht::storeprop::{
 };
 use std::marker::PhantomData;
 use std::collections::HashMap;
-use mydht::mydhtresult::{
+use mydht::dhtif::{
   Result,
+  LoopResult,
 };
 use vote::{
   MainStoreKV,
@@ -363,7 +366,7 @@ impl<
     Ok(AnoPeerMgmt(self.conf.peer_mgmt.clone()))
   }
 
-  fn init_dhtrules_proto(&mut self) -> Result<Self::DHTRules> {
+  fn init_dhtrules(&mut self) -> Result<Self::DHTRules> {
     Ok(self.conf.rules.clone())
   }
 
@@ -554,7 +557,7 @@ impl<
  
 //impl<C : MyDHTTunnelConf<InnerCommand = AnoServiceICommand>> Service for AnoService<C> {
   //type CommandOut = GlobalTunnelReply<C>;
-  fn call<S : SpawnerYield>(&mut self, req: Self::CommandIn, _async_yield : &mut S) -> Result<Self::CommandOut> {
+  fn call<S : SpawnerYield>(&mut self, req: Self::CommandIn, _async_yield : &mut S) -> LoopResult<Self::CommandOut> {
     match req {
 
       GlobalCommand::Distant(_opr,AnoServiceICommand(StoreAnoMsg::STOREENVELOPE(envelope))) => {

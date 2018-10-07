@@ -75,17 +75,16 @@ pub struct StripleMydhtErr(pub StripleError);
 impl From<StripleMydhtErr> for MError {
   #[inline]
   fn from(e : StripleMydhtErr) -> MError {
-    MError((e.0).0, MErrorKind::ExternalLib, (e.0).2)
+    MError::with_chain(e.0, MErrorKind::ExternalLib("mydht error".to_string()))
   }
 }
-pub struct GenErr<E : ErrorTrait>(E);
-// TODO move to mydht error lib
-impl<E : ErrorTrait> From<GenErr<E>> for MError {
+/*pub struct GenErr<E : ErrorTrait>(E);
+impl<E : ErrorTrait + Send> From<GenErr<E>> for MError {
   #[inline]
   fn from(e : GenErr<E>) -> MError {
-    MError(format!("{}, cause : {:?}",e.0.description(),e.0.cause()), MErrorKind::ExternalLib, None)
+    MError::with_chain(e.0, ErrorKind::ExternalLib("generic error trait error".to_string()))
   }
-}
+}*/
 
 
 
@@ -170,18 +169,16 @@ impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> StripleImpl for
 
 
 impl<A : KVContent,B : Address,C : OpenSSLConf, S : StripleKind> InstantiableStripleImpl for StriplePeer<A,B,C,S> {
-//impl<P : Peer, S : StripleKind> InstantiableStripleImpl for StriplePeer<P,S> {
-  // TODO use a variant of instantiable to use from as an Arc or RC, not for poc
-  // other idea is changing init to use &[u8] for from and not adding it to striple peer (get from
-  // using lazy one (lifetime issue)
+  fn add_from(&mut self,
+    from : Vec<u8>) {
+    self.from = from;
+  }
   fn init(&mut self,
-    from : Vec<u8>,
     sig : Vec<u8>,
     id : Vec<u8>) {
     // assume same derivation fro rsapeer and striple
     self.id = id;
     self.sig = sig;
-    self.from = from;
   }
 }
 
@@ -451,12 +448,14 @@ impl StripleImpl for VoteDesc {
 impl PubStriple for VoteDesc { }
 
 impl InstantiableStripleImpl for VoteDesc {
+  fn add_from(&mut self,
+    from : Vec<u8>) {
+    self.emit_by = from;
+  }
   fn init(&mut self,
-    from : Vec<u8>,
     sig : Vec<u8>,
     id : Vec<u8>) {
     self.id = id;
-    self.emit_by = from;
     self.sign = sig;
   }
 }
@@ -549,12 +548,14 @@ impl StripleFieldsIf for Envelope {
 }
 
 impl InstantiableStripleImpl for Envelope {
+  fn add_from(&mut self,
+    from : Vec<u8>) {
+    self.votekey = from;
+  }
   fn init(&mut self,
-    from : Vec<u8>,
     sig : Vec<u8>,
     id : Vec<u8>) {
     self.id = id;
-    self.votekey = from;
     self.sign = sig;
   }
 }
@@ -607,12 +608,14 @@ impl StripleFieldsIf for Participation {
 }
 
 impl InstantiableStripleImpl for Participation {
+  fn add_from(&mut self,
+    from : Vec<u8>) {
+    self.user = from;
+  }
   fn init(&mut self,
-    from : Vec<u8>,
     sig : Vec<u8>,
     id : Vec<u8>) {
     self.id = id;
-    self.user = from;
     self.sign = sig;
   }
 }
@@ -667,12 +670,14 @@ impl StripleFieldsIf for Vote {
 }
 
 impl InstantiableStripleImpl for Vote {
+  fn add_from(&mut self,
+    from : Vec<u8>) {
+    self.envelopeid = from;
+  }
   fn init(&mut self,
-    from : Vec<u8>,
     sig : Vec<u8>,
     id : Vec<u8>) {
     self.id = id;
-    self.envelopeid = from;
     self.sign = sig;
   }
 }

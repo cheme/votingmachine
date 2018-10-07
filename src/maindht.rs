@@ -98,13 +98,21 @@ use mydht::noservice::{
   NoCommandReply,
 };
 use mydht::service::{
-  ThreadPark,
-  MpscChannel,
-  NoSend,
-  NoService,
-  NoSpawn,
-  NoChannel,
-  MioEvented,
+  noservice::NoService,
+  spawn::{
+    threadpark::ThreadPark,
+    void::{
+      NoSpawn,
+    },
+  },
+  channels::{
+    mpsc::MpscChannel,
+    void::{
+      NoSend,
+      NoChannel,
+    },
+  },
+  eventloop::mio::MioEvented,
 };
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -512,7 +520,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
   fn init_peermgmt_proto(&mut self) -> Result<Self::PeerMgmtMeths> {
     Ok(self.peer_mgmt.clone())
   }
-  fn init_dhtrules_proto(&mut self) -> Result<Self::DHTRules> {
+  fn init_dhtrules(&mut self) -> Result<Self::DHTRules> {
     Ok(self.rules.clone())
   }
 
@@ -539,7 +547,7 @@ impl<P : Peer<Key = Vec<u8>, Address = SerSocketAddr> + AnoAddress<Address = Ser
         init_store : i_store,
         init_cache : i_cache,
         store : None,
-        dht_rules : self.init_dhtrules_proto()?,
+        dht_rules : self.init_dhtrules()?,
         query_cache : None,
         discover : true,
         _ph : PhantomData,
